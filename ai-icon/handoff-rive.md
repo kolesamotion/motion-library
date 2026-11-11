@@ -29,7 +29,7 @@
 | Исходник в Rive | `ai_icon_prod`, file id 2270880, ревизия «v7 default pause 0» |
 | Ресурсы | нет: без картинок, шрифтов, текста, звука и скриптов |
 
-**Где взять файл.** На странице «AI-иконка», вкладка «Разработка», кнопка «Скачать .riv (zip)». В архиве `ai_icon.zip`: `ai_icon.riv`, эта спека `handoff-rive.md`, исходник `scene.rml` и `rive.yaml`. После распаковки сверьте SHA-256 с таблицей.
+**Где взять файл.** GitHub, прямые ссылки без входа: [ai_icon.riv](https://github.com/kolesamotion/motion-library/raw/main/ai-icon/ai_icon.riv) · [ai_icon.zip](https://github.com/kolesamotion/motion-library/raw/main/ai-icon/ai_icon.zip) (внутри `ai_icon.riv`, эта спека `handoff-rive.md`, исходник `scene.rml` и `rive.yaml`) · папка [ai-icon](https://github.com/kolesamotion/motion-library/tree/main/ai-icon). Те же кнопки есть на странице «AI-иконка», вкладка «Разработка». После скачивания сверьте SHA-256 с таблицей.
 
 Файл в Rive руками не правят без новой ревизии и обновления этой спеки: после правки SHA-256 меняется.
 
