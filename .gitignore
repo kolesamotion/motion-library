@@ -50,3 +50,7 @@ tokens.json
 .DS_Store
 Thumbs.db
 Desktop.ini
+
+# Файлы AI-иконки для прямого скачивания из артефакта
+!ai-icon/*.riv
+!ai-icon/*.zip
