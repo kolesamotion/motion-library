@@ -1,0 +1,8 @@
+name: src
+logs:
+  file: build/rive.log
+  problems: build/problems.log
+main: "ai_icon"
+push:
+  projectId: 789242
+  fileId: 2270880
