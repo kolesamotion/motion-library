@@ -29,7 +29,7 @@
 | Исходник в Rive | «Анимация поиска продавца», file id 2747104, экспорт из редактора 24.11.2026 |
 | Ресурсы внутри | скрипт `SellerSearch` (Luau), шрифт `GolosText` (Golos Text Regular, только буквы 14 имён), 14 фото продавцов 192 × 192, WebP 75 % |
 
-**Где взять файл.** GitHub, прямые ссылки без входа: [seller-search.riv](https://github.com/kolesamotion/motion-library/raw/main/seller-search/seller-search.riv) · [seller-search.zip](https://github.com/kolesamotion/motion-library/raw/main/seller-search/seller-search.zip) (внутри `seller-search.riv`, эта спека `handoff-rive.md`, исходник `scene.rml` и `rive.yaml`) · папка [seller-search](https://github.com/kolesamotion/motion-library/tree/main/seller-search). Те же кнопки есть на странице «Анимация поиска продавца», раздел «Вариант F». После скачивания сверьте SHA-256 с таблицей.
+**Где взять файл.** GitHub, прямые ссылки без входа: [seller-search.riv](https://github.com/kolesamotion/motion-library/raw/main/seller-search/seller-search.riv) · [seller-search.zip](https://github.com/kolesamotion/motion-library/raw/main/seller-search/seller-search.zip) (внутри `seller-search.riv`, эта спека `handoff-rive.md`, исходник `scene.rml` и `rive.yaml`) · папка [seller-search](https://github.com/kolesamotion/motion-library/tree/main/seller-search). Те же кнопки есть на странице «Анимация поиска продавца», раздел «Разработка». После скачивания сверьте SHA-256 с таблицей.
 
 Файл в Rive руками не правят без нового экспорта и обновления этой спеки: после правки SHA-256 меняется.
 
