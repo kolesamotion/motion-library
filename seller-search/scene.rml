@@ -2,10 +2,6 @@
     <Artboard defaultStateMachineId="0:7" styleId="0:5" width="360" height="360" name="SellerSearch" id="0:2">
         <LayoutComponentStyle name="Artboard Style" id="0:5"/>
 
-        <Fill name="Background" id="0:114">
-            <SolidColor colorValue="FFF3F6F8" name="Color" id="0:115"/>
-        </Fill>
-
         <LayoutComponent width="360" height="360" styleId="0:31" name="Root" id="0:30">
             <LayoutComponentStyle layoutWidthScaleType="fill" layoutHeightScaleType="fill" widthUnitsValue="auto" heightUnitsValue="auto" name="Root Style" id="0:31"/>
             <ScriptedLayout scriptAssetId="0:80" name="Search" id="0:32">
