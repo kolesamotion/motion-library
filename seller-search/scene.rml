@@ -1,0 +1,51 @@
+<Rive version="1" kind="fragment">
+    <Artboard defaultStateMachineId="0:7" styleId="0:5" width="360" height="360" name="SellerSearch" id="0:2">
+        <LayoutComponentStyle name="Artboard Style" id="0:5"/>
+
+        <Fill name="Background" id="0:114">
+            <SolidColor colorValue="FFF3F6F8" name="Color" id="0:115"/>
+        </Fill>
+
+        <LayoutComponent width="360" height="360" styleId="0:31" name="Root" id="0:30">
+            <LayoutComponentStyle layoutWidthScaleType="fill" layoutHeightScaleType="fill" widthUnitsValue="auto" heightUnitsValue="auto" name="Root Style" id="0:31"/>
+            <ScriptedLayout scriptAssetId="0:80" name="Search" id="0:32">
+                <ScriptInputNumber propertyValue="0.8" name="speed" id="0:21"/>
+                <ScriptInputBoolean propertyValue="true" name="showNames" id="0:22"/>
+                <ScriptInputColor propertyValue="FF0077FF" name="accent" id="0:23"/>
+                <ScriptInputColor propertyValue="FFB2B8C6" name="dotColor" id="0:24"/>
+                <ScriptInputNumber propertyValue="0" name="seed" id="0:25"/>
+                <ScriptInputNumber propertyValue="1" name="count" id="0:26"/>
+            </ScriptedLayout>
+        </LayoutComponent>
+
+        <StateMachine name="State Machine 1" id="0:7">
+            <StateMachineLayer name="Layer 1" id="0:8">
+                <AnyState x="200" y="-120" id="0:116"/>
+                <ExitState x="400" y="-120" id="0:117"/>
+                <EntryState id="0:118">
+                    <StateTransition stateToId="0:12" id="0:119"/>
+                </EntryState>
+                <AnimationState x="200" animationId="0:6" id="0:12"/>
+            </StateMachineLayer>
+        </StateMachine>
+
+        <LinearAnimation loopValue="loop" duration="60" name="Idle" id="0:6"/>
+    </Artboard>
+
+    <ScriptAsset file="SellerSearch.luau" name="SellerSearch" id="0:80" codeFileId="0:121"/>
+    <FontAsset includeInExport="true" file="fonts/GolosText-Regular.ttf" name="GolosText" id="0:90"/>
+    <ImageAsset format="webp" quality="0.75" includeInExport="true" file="avatars/01_serik.png" name="01_serik" id="0:100"/>
+    <ImageAsset format="webp" quality="0.75" includeInExport="true" file="avatars/02_andrey.png" name="02_andrey" id="0:101"/>
+    <ImageAsset format="webp" quality="0.75" includeInExport="true" file="avatars/03_aiman.png" name="03_aiman" id="0:102"/>
+    <ImageAsset format="webp" quality="0.75" includeInExport="true" file="avatars/04_aleksey.png" name="04_aleksey" id="0:103"/>
+    <ImageAsset format="webp" quality="0.75" includeInExport="true" file="avatars/05_daniyar.png" name="05_daniyar" id="0:104"/>
+    <ImageAsset format="webp" quality="0.75" includeInExport="true" file="avatars/06_marzhan.png" name="06_marzhan" id="0:105"/>
+    <ImageAsset format="webp" quality="0.75" includeInExport="true" file="avatars/07_sergey.png" name="07_sergey" id="0:106"/>
+    <ImageAsset format="webp" quality="0.75" includeInExport="true" file="avatars/08_bolat.png" name="08_bolat" id="0:107"/>
+    <ImageAsset format="webp" quality="0.75" includeInExport="true" file="avatars/09_maksim.png" name="09_maksim" id="0:108"/>
+    <ImageAsset format="webp" quality="0.75" includeInExport="true" file="avatars/10_olga.png" name="10_olga" id="0:109"/>
+    <ImageAsset format="webp" quality="0.75" includeInExport="true" file="avatars/11_aruzhan.png" name="11_aruzhan" id="0:110"/>
+    <ImageAsset format="webp" quality="0.75" includeInExport="true" file="avatars/12_viktor.png" name="12_viktor" id="0:111"/>
+    <ImageAsset format="webp" quality="0.75" includeInExport="true" file="avatars/13_arman.png" name="13_arman" id="0:112"/>
+    <ImageAsset format="webp" quality="0.75" includeInExport="true" file="avatars/14_aidos.png" name="14_aidos" id="0:113"/>
+</Rive>

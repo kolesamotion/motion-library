@@ -1,0 +1,7 @@
+name: seller-search
+logs:
+  file: build/rive.log
+  problems: build/problems.log
+push:
+  projectId: 789242
+  fileId: 2747104
