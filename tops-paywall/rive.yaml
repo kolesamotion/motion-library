@@ -1,0 +1,8 @@
+name: tops-paywall
+logs:
+  file: build/rive.log
+  problems: build/problems.log
+main: "Car"
+push:
+  projectId: 789242
+  fileId: 2754882

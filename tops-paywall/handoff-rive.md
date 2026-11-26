@@ -1,0 +1,1597 @@
+# Анимация машины на пейволле «Мощность рекламы» · спецификация Rive-файла
+
+**Версия файла v4** · 26 ноября 2026 · артборд 360 × 250
+
+Как подключить `tops_paywall_prod.riv`: что в нём лежит, как вписать его в экран, как переключать уровень продвижения и как проверить результат. Всё движение собрано в файле. Приложение задаёт только один параметр: уровень.
+
+### 0. Что изменилось в v4
+
+Машину опустили, чтобы на iPhone с Dynamic Island она не уходила под вырез. Отступ общий для iOS и Android.
+
+- Артборд `Car` стал выше: **360 × 250** вместо 360 × 220. Добавили 30 сверху, нижний край и отступ под машиной не менялись.
+- Верх машины теперь в 76 от верха артборда (было 46). Фон, полосы, линии скорости и виньетка дотянуты на всю новую высоту, градиент фона идёт от самого верха без резкой границы.
+- Движение, тайминги, уровни и контракт те же, что в v3.
+- **Что поменять в коде:** пропорцию блока анимации, с `360 / 220` на `360 / 250` (раздел 5). Больше ничего.
+
+**Если спеку читает ИИ-ассистент.** Правила, которые чаще всего нарушают при встраивании:
+
+- Запускать стейт-машину `CarSM` с `autoBind: true`. Без него `viewModelInstance` будет `null` и уровень не переключится.
+- Уровень задаётся строкой в enum `promoType` у `ControlsVM`. Строки регистрозависимы, их пять (раздел 3). `vipHotTop` удалён ещё в v2.
+- Остальные свойства `ControlsVM` служебные, их пишут таймлайны уровней. Из приложения их не трогать.
+- Нужен Rive Renderer: в вебе `@rive-app/webgl2`, не `@rive-app/canvas`. На canvas пламя будет с резаными краями.
+- Fit — Cover, блок с пропорцией `360 / 250`. Не растягивать canvas стилями без `resizeDrawingSurfaceToCanvas()`.
+- Через 20 с без смены уровня сцена сама замирает, чтобы телефон не грелся. Это не баг (раздел 4).
+
+### 1. Файл
+
+| Поле | Значение |
+|---|---|
+| Файл | `tops_paywall_prod.riv` |
+| Версия | v4, экспорт из редактора 26.11.2026 |
+| Размер | 532 241 байт |
+| SHA-256 | `aac52ba8013ce1371da0466e42cc0c6e2bda37ecd7776b6a4f115401f148c223` |
+| Скрипты внутри | Luau: `FlameDistortion` (колыхание пламени), `SpeedLines` (линии скорости) |
+| Ресурсы внутри | растровые слои машины и 30 кадров бликов, WebP |
+
+**Где взять файл.** GitHub, папка [tops-paywall](https://github.com/kolesamotion/motion-library/tree/main/tops-paywall): [tops_paywall_prod.riv](https://github.com/kolesamotion/motion-library/raw/main/tops-paywall/tops_paywall_prod.riv) · [tops-paywall.zip](https://github.com/kolesamotion/motion-library/raw/main/tops-paywall/tops-paywall.zip) (внутри `tops_paywall_prod.riv`, эта спека `handoff-rive.md`, исходник `scene.rml` и `rive.yaml`). Прошлые версии лежат в `versions/v1` … `versions/v4`. Те же кнопки есть на странице анимации, раздел «Разработка», и в истории версий под спекой. После скачивания сверьте SHA-256 с таблицей.
+
+### 2. Контракт
+
+Вся внешняя поверхность файла: три имени и одно свойство.
+
+| Объект | Имя | Что делает |
+|---|---|---|
+| Артборд | `Car` | 360 × 250, по умолчанию. Его и подключать |
+| Стейт-машина | `CarSM` | по умолчанию, автозапуск; переходы между уровнями и остановка через 20 с |
+| ViewModel | `ControlsVM` | один инстанс, подключается через `autoBind` |
+| Свойство | `promoType` | enum, только запись: текущий уровень |
+| Events, inputs стейт-машины | нет | слушать нечего |
+
+### 3. Значения promoType
+
+| Значение | Уровень |
+|---|---|
+| `noPromo` | без продвижения, по умолчанию |
+| `quickStart` | Быстрый старт |
+| `standart` | Стандартное продвижение |
+| `active` | Активное продвижение |
+| `maxReach` | Максимальный охват |
+
+Пишется именно `standart`, как в файле. У всех переходов включён early exit: быстрые переключения не теряются и не копятся в очередь, значение можно менять как угодно часто.
+
+### 4. Что происходит в анимации
+
+- **Уровень.** Чем выше уровень, тем сильнее пламя, гуще и быстрее линии скорости и ярче фон. Переход на новый уровень плавный.
+- **Покачивание.** Машина качается только на переходах между уровнями, в покое стоит на месте.
+- **Остановка через 20 с.** Если уровень не меняют 20 с, сцена плавно замирает, чтобы не греть устройство. Любая смена `promoType` оживляет её и запускает отсчёт 20 с заново. Запись того же значения ничего не меняет.
+- **Петля.** Пока сцена живая, фон, пламя и блики крутятся без швов.
+
+### 5. Размер и размещение
+
+Артборд 360 × 250, пропорция 1,44 : 1. Блок анимации идёт во всю ширину экрана, от верхнего края экрана, под статус-баром.
+
+- Задайте блоку `aspect-ratio: 360 / 250` и `Fit.Cover`, выравнивание по центру. Если блок в вёрстке другой пропорции, машина останется в центре, обрежется только фон.
+- На iPhone шириной 393 pt блок выходит 393 × 273 pt, верх машины в 83 pt от верха экрана, ниже Dynamic Island (низ острова на 48 pt). В верхней точке покачивания до острова остаётся около 30 pt.
+- На Android 360 dp: блок 360 × 250 dp, верх машины в 76 dp.
+- Фон рисует сам файл, отдельный фон под блоком не нужен.
+
+### 6. Подключение
+
+Общие шаги для всех платформ:
+
+1. Скачать `tops_paywall_prod.riv` (раздел 1), положить в ресурсы приложения и загружать оттуда.
+2. Артборд `Car`, стейт-машина `CarSM` (оба по умолчанию), autobind ViewModel.
+3. Fit Cover, автозапуск, после загрузки записать текущий уровень в `promoType`.
+
+Web (вебвью), проверено на `@rive-app/webgl2`:
+
+```js
+import { Rive, Layout, Fit, Alignment } from '@rive-app/webgl2';
+
+const r = new Rive({
+  src: '/assets/tops_paywall_prod.riv',
+  canvas: document.getElementById('paywall'), // блок с aspect-ratio: 360 / 250
+  stateMachines: 'CarSM',
+  autoplay: true,
+  autoBind: true, // без этого viewModelInstance будет null
+  layout: new Layout({ fit: Fit.Cover, alignment: Alignment.Center }),
+  onLoad() {
+    r.resizeDrawingSurfaceToCanvas();
+    setLevel('standart');
+  }
+});
+
+function setLevel(value) {
+  r.viewModelInstance.enum('promoType').value = value;
+}
+
+window.addEventListener('resize', () => r.resizeDrawingSurfaceToCanvas());
+// экран закрыли:
+// r.cleanup();
+```
+
+Файл держит WebGL-контекст и Luau-VM, поэтому при размонтировании экрана вызывайте `r.cleanup()`, иначе браузер упрётся в лимит живых контекстов.
+
+iOS и Android: контракт тот же (`Car`, `CarSM`, `ControlsVM.promoType`, autobind при загрузке стейт-машины). Отличается только способ получить инстанс ViewModel, сигнатуры своей версии рантайма смотрите в [документации Rive по data binding](https://rive.app/docs/runtimes/data-binding). Rive Renderer на нативных рантаймах включён по умолчанию. Проверьте, что версия рантайма поддерживает Luau-скрипты: без них пропадут пламя и линии скорости.
+
+### 7. Проверка
+
+- Блок анимации по пропорции 360 : 250, фон заполняет его целиком, сверху нет пустой полосы.
+- На iPhone с Dynamic Island машина целиком ниже выреза, в том числе в момент покачивания при смене уровня.
+- Все пять значений `promoType` переключают уровень, переход плавный.
+- Через 20 с без смены уровня сцена замирает, смена уровня её оживляет.
+- Пламя с мягкими краями, без резаных кромок: значит, работает Rive Renderer.
+- В консоли рантайма при загрузке нет ошибок.
+- SHA-256 файла совпадает с таблицей в разделе 1.
+
+### 8. История версий
+
+| Версия | Дата | Что изменилось |
+|---|---|---|
+| v4 | 26.11.2026 | артборд 360 × 250, машина ниже на 30, отступ от Dynamic Island; в коде меняется только пропорция блока |
+| v3 | 01.09.2026 | смена уровня снимает остановку и запускает отсчёт 20 с заново; убраны две ошибки импорта в консоли рантайма |
+| v2 | 28.08.2026 | остановка через 20 с против нагрева, пять уровней вместо шести (`vipHotTop` удалён), кадр дешевле, файл легче вдвое |
+| v1 | 07.08.2026 | первая версия: артборд 360 × 220, шесть уровней |
+
+### 9. Исходник
+
+Файл выгружен в проект Rive CLI: `rive.yaml` (связь с файлом в Rive), `scene.rml` (сцена, ниже), Luau-скрипты `FlameDistortion.luau` и `SpeedLines.luau`, растровые слои машины и кадры бликов. `rive.yaml` и `scene.rml` лежат в архиве. Скрипты и ассеты хранятся в самом файле Rive и в папке проекта у моушн-дизайнера. Итоговый `.riv` берётся только из экспорта редактора (Export, For runtime): сборка CLI вкладывает картинки без сжатия и не годится для выдачи.
+
+<details class="md-fold"><summary>Показать scene.rml · 1 452 строк</summary>
+
+```xml
+<Rive version="1" kind="fragment">
+    <Artboard originX="0.5" originY="0.5" defaultStateMachineId="1:7" expandedComponents="1:2" selectedAnimations="1:7" viewModelId="1:14" viewModelInstanceId="1:15" isComponent="true" openAnimations="1:57672-1:7" spaceId="1:58789" clip="true" width="360" height="250" styleId="1:5" name="Car" id="1:2">
+        <CustomPropertyGroup x="-367.60049" y="-110" name="Speed Lines Property Group" id="1:48792">
+            <CustomPropertyNumber propertyValue="1" name="linesBlur" id="1:48793">
+                <DataBindContext sourcePathIds="1:14-1:28590" propertyKey="243" direction="true" id="1:48802"/>
+            </CustomPropertyNumber>
+            <CustomPropertyNumber propertyValue="100" name="linesDensity" id="1:48794">
+                <DataBindContext sourcePathIds="1:14-1:28578" propertyKey="243" direction="true" id="1:48803"/>
+            </CustomPropertyNumber>
+            <CustomPropertyNumber propertyValue="100" name="linesLength" id="1:48796">
+                <DataBindContext sourcePathIds="1:14-1:28580" propertyKey="243" direction="true" id="1:48805"/>
+            </CustomPropertyNumber>
+            <CustomPropertyNumber propertyValue="70" name="linesOpacity" id="1:48797">
+                <DataBindContext sourcePathIds="1:14-1:28582" propertyKey="243" direction="true" id="1:48806"/>
+            </CustomPropertyNumber>
+            <CustomPropertyNumber propertyValue="1000" name="linesSpeed" id="1:48798">
+                <DataBindContext sourcePathIds="1:14-1:28576" propertyKey="243" direction="true" id="1:48807"/>
+            </CustomPropertyNumber>
+            <CustomPropertyNumber propertyValue="1" name="linesThickness" id="1:48800">
+                <DataBindContext sourcePathIds="1:14-1:28588" propertyKey="243" direction="true" id="1:48809"/>
+            </CustomPropertyNumber>
+            <CustomPropertyNumber propertyValue="50" name="linesSpread" id="1:48799">
+                <DataBindContext sourcePathIds="1:14-1:28584" propertyKey="243" direction="true" id="1:48808"/>
+            </CustomPropertyNumber>
+            <CustomPropertyNumber name="linesTurbulence" id="1:48801">
+                <DataBindContext sourcePathIds="1:14-1:28586" propertyKey="243" direction="true" id="1:48810"/>
+            </CustomPropertyNumber>
+            <CustomPropertyNumber propertyValue="100" name="linesIntensity" id="1:48795">
+                <DataBindContext sourcePathIds="1:14-1:28574" propertyKey="243" direction="true" id="1:48804"/>
+            </CustomPropertyNumber>
+        </CustomPropertyGroup>
+        <CustomPropertyGroup x="-367.60049" y="34.325474" name="Flames Property Group" id="1:18624">
+            <CustomPropertyNumber propertyValue="100" name="scale" id="1:18625">
+                <DataBindContext sourcePathIds="1:14-1:18618" propertyKey="243" direction="true" id="1:18626"/>
+            </CustomPropertyNumber>
+            <CustomPropertyNumber propertyValue="6" name="amplitude" id="1:18645">
+                <DataBindContext sourcePathIds="1:14-1:18614" propertyKey="243" direction="true" id="1:18650"/>
+            </CustomPropertyNumber>
+            <CustomPropertyNumber propertyValue="3" name="speed" id="1:18648">
+                <DataBindContext sourcePathIds="1:14-1:18616" propertyKey="243" direction="true" id="1:18653"/>
+            </CustomPropertyNumber>
+            <CustomPropertyNumber propertyValue="100" name="intensity" id="1:18646">
+                <DataBindContext sourcePathIds="1:14-1:18612" propertyKey="243" direction="true" id="1:18651"/>
+            </CustomPropertyNumber>
+            <CustomPropertyNumber propertyValue="100" name="opacity" id="1:18647">
+                <DataBindContext sourcePathIds="1:14-1:18620" propertyKey="243" direction="true" id="1:18652"/>
+            </CustomPropertyNumber>
+        </CustomPropertyGroup>
+        <Node y="15" name="Root" id="1:27">
+            <Shape x="-3.0517578e-05" name="Overlay" id="1:53764">
+                <Rectangle width="360" height="250" y="-15" id="1:53765"/>
+                <Fill fillRule="clockwise" blendModeValue="overlay" id="1:53766">
+                    <RadialGradient endX="387.79999" opacity="0.2" id="1:53771">
+                        <GradientStop id="1:53772"/>
+                        <GradientStop colorValue="FF000000" position="1" id="1:53773"/>
+                    </RadialGradient>
+                </Fill>
+            </Shape>
+            <Node y="246.10001" scaleX="2" name="Border" id="1:49029">
+                <Shape x="5.261656e-06" y="4.6552177e-06" rotation="-1.0471976" id="1:49022">
+                    <PointsPath isClosed="true" id="1:53753">
+                        <StraightVertex radius="866" x="2.8197493e-14" y="-460.5" id="1:53754"/>
+                        <StraightVertex radius="866" x="103.73727" y="-59.892731" id="1:53755"/>
+                        <StraightVertex radius="866" x="398.80469" y="230.25" id="1:53756"/>
+                        <StraightVertex radius="866" x="66.76432" y="-38.546398" id="1:53757"/>
+                    </PointsPath>
+                    <Fill fillRule="clockwise" id="1:49024">
+                        <SolidColor colorValue="FFFFFFFF" id="1:49025"/>
+                    </Fill>
+                    <Stroke thickness="13" name="Stroke 2" id="1:49839">
+                        <SolidColor colorValue="FFFFFFFF" name="Component" id="1:49840"/>
+                        <Feather strength="6" name="Component" id="1:49841"/>
+                    </Stroke>
+                    <Stroke thickness="13" id="1:49026">
+                        <SolidColor colorValue="FFFFFFFF" id="1:49027"/>
+                        <Feather id="1:49028"/>
+                    </Stroke>
+                </Shape>
+            </Node>
+            <ScriptedDrawable scriptAssetId="1:28527" name="SpeedLines 1" id="1:28532">
+                <ScriptInputNumber propertyValue="360" name="width" id="1:28533"/>
+                <ScriptInputNumber propertyValue="280" name="height" id="1:28534"/>
+                <ScriptInputNumber propertyValue="100" name="intensity" id="1:28535">
+                    <DataBindContext sourcePathIds="1:14-1:28574" propertyKey="243" id="1:28601"/>
+                </ScriptInputNumber>
+                <ScriptInputNumber propertyValue="220" name="speed" id="1:28536">
+                    <DataBindContext sourcePathIds="1:14-1:28576" propertyKey="243" id="1:28602"/>
+                </ScriptInputNumber>
+                <ScriptInputNumber propertyValue="55" name="density" id="1:28537">
+                    <DataBindContext sourcePathIds="1:14-1:28578" propertyKey="243" id="1:28603"/>
+                </ScriptInputNumber>
+                <ScriptInputNumber propertyValue="46" name="length" id="1:28538">
+                    <DataBindContext sourcePathIds="1:14-1:28580" propertyKey="243" id="1:28604"/>
+                </ScriptInputNumber>
+                <ScriptInputNumber propertyValue="70" name="opacity" id="1:28539">
+                    <DataBindContext sourcePathIds="1:14-1:28582" propertyKey="243" id="1:28605"/>
+                </ScriptInputNumber>
+                <ScriptInputNumber propertyValue="50" name="spread" id="1:28540">
+                    <DataBindContext sourcePathIds="1:14-1:28584" propertyKey="243" id="1:28606"/>
+                </ScriptInputNumber>
+                <ScriptInputNumber propertyValue="25" name="turbulence" id="1:28541">
+                    <DataBindContext sourcePathIds="1:14-1:28586" propertyKey="243" id="1:28607"/>
+                </ScriptInputNumber>
+                <ScriptInputNumber propertyValue="2.5999999" name="thickness" id="1:28542">
+                    <DataBindContext sourcePathIds="1:14-1:28588" propertyKey="243" id="1:28608"/>
+                </ScriptInputNumber>
+                <ScriptInputNumber propertyValue="1.5" name="blur" id="1:28543">
+                    <DataBindContext sourcePathIds="1:14-1:28590" propertyKey="243" id="1:28609"/>
+                </ScriptInputNumber>
+                <ScriptInputNumber propertyValue="0.5" name="densityScale" id="1:28544"/>
+                <ScriptInputNumber propertyValue="1.6" name="speedScale" id="1:28545"/>
+                <ScriptInputNumber propertyValue="1.3" name="thicknessScale" id="1:28546"/>
+                <ScriptInputNumber propertyValue="0.69999999" name="opacityScale" id="1:28547"/>
+                <ScriptInputNumber propertyValue="90" name="angle" id="1:28548"/>
+                <ScriptInputNumber propertyValue="35" name="depth" id="1:28549"/>
+                <ScriptInputNumber propertyValue="25" name="wake" id="1:28550"/>
+                <ScriptInputNumber propertyValue="7" name="seed" id="1:28551"/>
+                <ScriptInputColor propertyValue="FFFFFFFF" name="color" id="1:28552"/>
+            </ScriptedDrawable>
+            <Node name="CAR" id="1:26">
+                <Node y="39.5" styleValue="square" name="Flames PSR" id="1:350"/>
+                <NestedArtboard artboardId="1:142" dataBindPathIds="1:14-1:13092" x="17.200001" y="1" rotation="-0.017453292" scaleX="-1" name="FlameComp" complexDependency="true" id="1:354">
+                    <TranslationConstraint offset="true" targetId="1:350" name="Translation" id="1:356"/>
+                    <NestedStateMachine animationId="1:147" id="1:58738"/>
+                </NestedArtboard>
+                <NestedArtboard artboardId="1:142" dataBindPathIds="1:14-1:13090" x="-17.200001" y="1" rotation="0.017453292" name="Left FlameComp" complexDependency="true" id="1:343">
+                    <TranslationConstraint offset="true" targetId="1:350" id="1:352"/>
+                    <NestedStateMachine animationId="1:147" id="1:53727"/>
+                </NestedArtboard>
+                <NestedArtboard artboardId="1:52919" y="-5.1999969" name="CarReflections" id="1:53663">
+                    <NestedStateMachine animationId="1:53525" id="1:53664"/>
+                </NestedArtboard>
+                <Image assetId="1:53914" y="-5.0999999" scaleX="0.123" scaleY="0.123" name="car" id="1:53699"/>
+            </Node>
+            <ScriptedDrawable scriptAssetId="1:28527" name="SpeedLines 2" unlockedOverride="true" id="1:28553">
+                <ScriptInputNumber propertyValue="360" name="width" id="1:28554"/>
+                <ScriptInputNumber propertyValue="280" name="height" id="1:28555"/>
+                <ScriptInputNumber propertyValue="100" name="intensity" id="1:28556">
+                    <DataBindContext sourcePathIds="1:14-1:28574" propertyKey="243" id="1:28592"/>
+                </ScriptInputNumber>
+                <ScriptInputNumber propertyValue="220" name="speed" id="1:28557">
+                    <DataBindContext sourcePathIds="1:14-1:28576" propertyKey="243" id="1:28593"/>
+                </ScriptInputNumber>
+                <ScriptInputNumber propertyValue="55" name="density" id="1:28558">
+                    <DataBindContext sourcePathIds="1:14-1:28578" propertyKey="243" id="1:28594"/>
+                </ScriptInputNumber>
+                <ScriptInputNumber propertyValue="46" name="length" id="1:28559">
+                    <DataBindContext sourcePathIds="1:14-1:28580" propertyKey="243" id="1:28595"/>
+                </ScriptInputNumber>
+                <ScriptInputNumber propertyValue="100" name="opacity" id="1:28560">
+                    <DataBindContext sourcePathIds="1:14-1:28582" propertyKey="243" id="1:28596"/>
+                </ScriptInputNumber>
+                <ScriptInputNumber propertyValue="35" name="spread" id="1:28561">
+                    <DataBindContext sourcePathIds="1:14-1:28584" propertyKey="243" id="1:28597"/>
+                </ScriptInputNumber>
+                <ScriptInputNumber propertyValue="25" name="turbulence" id="1:28562">
+                    <DataBindContext sourcePathIds="1:14-1:28586" propertyKey="243" id="1:28598"/>
+                </ScriptInputNumber>
+                <ScriptInputNumber propertyValue="2.5999999" name="thickness" id="1:28563">
+                    <DataBindContext sourcePathIds="1:14-1:28588" propertyKey="243" id="1:28599"/>
+                </ScriptInputNumber>
+                <ScriptInputNumber propertyValue="1.5" name="blur" id="1:28564">
+                    <DataBindContext sourcePathIds="1:14-1:28590" propertyKey="243" id="1:28600"/>
+                </ScriptInputNumber>
+                <ScriptInputNumber propertyValue="1" name="densityScale" id="1:28565"/>
+                <ScriptInputNumber propertyValue="1" name="speedScale" id="1:28566"/>
+                <ScriptInputNumber propertyValue="1" name="thicknessScale" id="1:28567"/>
+                <ScriptInputNumber propertyValue="1" name="opacityScale" id="1:28568"/>
+                <ScriptInputNumber propertyValue="90" name="angle" id="1:28569"/>
+                <ScriptInputNumber propertyValue="60" name="depth" id="1:28570"/>
+                <ScriptInputNumber propertyValue="40" name="wake" id="1:28571"/>
+                <ScriptInputNumber propertyValue="150" name="seed" id="1:28572"/>
+                <ScriptInputColor propertyValue="FFFFFFFF" name="color" id="1:28573"/>
+            </ScriptedDrawable>
+            <NestedArtboard artboardId="1:48843" x="-180.00003" y="-140" name="BGComp" id="1:48909">
+                <NestedStateMachine animationId="1:48848" id="1:48910"/>
+            </NestedArtboard>
+        </Node>
+        <LayoutComponent width="180" height="250" styleId="1:18367" name="Layout BG" id="1:18366">
+            <LayoutComponentStyle positionLeftUnitsValue="points" positionRightUnitsValue="points" positionTopUnitsValue="points" edgeConstraints="20" positionTypeValue="absolute" layoutWidthScaleType="fill" layoutHeightScaleType="fill" widthUnitsValue="auto" id="1:18367"/>
+            <Fill fillRule="clockwise" name="Background" id="1:18368">
+                <LinearGradient startX="180" endX="180" endY="250" id="1:18370">
+                    <GradientStop colorValue="FF03172E" id="1:18371"/>
+                    <GradientStop position="1" id="1:18372"/>
+                    <GradientStop colorValue="FF1A7BEB" position="0.55580002" id="1:18382"/>
+                </LinearGradient>
+            </Fill>
+        </LayoutComponent>
+        <CustomPropertyGroup x="-62.256084" y="-231.08211" name="Idle Property Group" id="1:57668">
+            <CustomPropertyBoolean name="frozen" id="1:57669">
+                <DataBindContext sourcePathIds="1:14-1:57666" propertyKey="245" direction="true" id="1:57670"/>
+            </CustomPropertyBoolean>
+        </CustomPropertyGroup>
+        <LayoutComponentStyle layoutAlignmentType="center" id="1:5"/>
+        <StateMachine editingLayerId="1:8" name="CarSM" id="1:7">
+            <StateMachineLayer stageZoom="0.76710391" stageX="454.49857" stageY="105.35005" name="MainStates" id="1:8">
+                <AnimationState animationId="1:6" x="159" y="-95" id="0:57">
+                    <StateMachineFireEvent id="0:81"/>
+                </AnimationState>
+                <AnimationState animationId="0:55" x="314" y="-95" id="0:58"/>
+                <AnyState x="476" y="172" id="1:9">
+                    <StateTransition stateToId="0:57" enableEarlyExit="true" duration="300" interpolationType="cubic" id="0:60">
+                        <TransitionViewModelCondition id="1:18572">
+                            <TransitionPropertyViewModelComparator id="1:18573">
+                                <BindablePropertyEnum id="1:18574">
+                                    <DataBindContext sourcePathIds="1:14-1:18535" propertyKey="637" id="1:18575"/>
+                                </BindablePropertyEnum>
+                            </TransitionPropertyViewModelComparator>
+                            <TransitionValueEnumComparator value="1:18539" id="1:18576"/>
+                        </TransitionViewModelCondition>
+                        <CubicEaseInterpolator x2="0.30000001" id="1:58747"/>
+                    </StateTransition>
+                    <StateTransition stateToId="0:58" enableEarlyExit="true" duration="300" interpolationType="cubic" id="0:61">
+                        <TransitionViewModelCondition id="1:18587">
+                            <TransitionPropertyViewModelComparator id="1:18588">
+                                <BindablePropertyEnum id="1:18589">
+                                    <DataBindContext sourcePathIds="1:14-1:18535" propertyKey="637" id="1:18590"/>
+                                </BindablePropertyEnum>
+                            </TransitionPropertyViewModelComparator>
+                            <TransitionValueEnumComparator value="1:18540" id="1:18591"/>
+                        </TransitionViewModelCondition>
+                        <CubicEaseInterpolator x2="0.30000001" id="1:58746"/>
+                    </StateTransition>
+                    <StateTransition stateToId="1:18529" enableEarlyExit="true" duration="300" interpolationType="cubic" id="1:18532">
+                        <TransitionViewModelCondition id="1:18577">
+                            <TransitionPropertyViewModelComparator id="1:18578">
+                                <BindablePropertyEnum id="1:18579">
+                                    <DataBindContext sourcePathIds="1:14-1:18535" propertyKey="637" id="1:18580"/>
+                                </BindablePropertyEnum>
+                            </TransitionPropertyViewModelComparator>
+                            <TransitionValueEnumComparator value="1:18542" id="1:18581"/>
+                        </TransitionViewModelCondition>
+                        <CubicEaseInterpolator x2="0.30000001" id="1:58745"/>
+                    </StateTransition>
+                    <StateTransition stateToId="1:18530" enableEarlyExit="true" duration="300" interpolationType="cubic" id="1:18533">
+                        <TransitionViewModelCondition id="1:18597">
+                            <TransitionPropertyViewModelComparator id="1:18598">
+                                <BindablePropertyEnum id="1:18599">
+                                    <DataBindContext sourcePathIds="1:14-1:18535" propertyKey="637" id="1:18600"/>
+                                </BindablePropertyEnum>
+                            </TransitionPropertyViewModelComparator>
+                            <TransitionValueEnumComparator value="1:18543" id="1:18601"/>
+                        </TransitionViewModelCondition>
+                        <CubicEaseInterpolator x2="0.30000001" id="1:58743"/>
+                    </StateTransition>
+                    <StateTransition stateToId="1:18531" enableEarlyExit="true" duration="300" interpolationType="cubic" id="1:18534">
+                        <TransitionViewModelCondition id="1:18582">
+                            <TransitionPropertyViewModelComparator id="1:18583">
+                                <BindablePropertyEnum id="1:18584">
+                                    <DataBindContext sourcePathIds="1:14-1:18535" propertyKey="637" id="1:18585"/>
+                                </BindablePropertyEnum>
+                            </TransitionPropertyViewModelComparator>
+                            <TransitionValueEnumComparator value="1:18544" id="1:18586"/>
+                        </TransitionViewModelCondition>
+                        <CubicEaseInterpolator x2="0.30000001" id="1:58744"/>
+                    </StateTransition>
+                </AnyState>
+                <ExitState x="907" y="-95" id="1:10"/>
+                <EntryState x="27" y="-95" id="1:11"/>
+                <AnimationState animationId="1:18330" x="474" y="-96" id="1:18529"/>
+                <AnimationState animationId="1:18331" x="621" y="-95" id="1:18530"/>
+                <AnimationState animationId="1:18332" x="767" y="-94" id="1:18531"/>
+            </StateMachineLayer>
+            <StateMachineListener targetId="1:2" name="PromoTypeChanged" id="1:58750">
+                <ListenerInputTypeViewModel viewModelPathIds="1:14-1:18535" listenerTypeValue="viewModel" id="1:58751"/>
+                <ListenerViewModelChange fromViewModelProperty="true" fromDataBindId="1:58755" id="1:58752">
+                    <BindablePropertyTrigger id="1:58753">
+                        <DataBindContext sourcePathIds="1:14-1:58748" propertyKey="686" direction="true" converterId="1:58756" id="1:58754"/>
+                        <DataBindContext sourcePathIds="1:14-1:58748" propertyKey="686" id="1:58755"/>
+                    </BindablePropertyTrigger>
+                </ListenerViewModelChange>
+            </StateMachineListener>
+            <StateMachineLayer name="IdleGate" id="1:57686">
+                <AnyState x="389" y="84" id="1:57687"/>
+                <ExitState x="480" id="1:57688"/>
+                <EntryState id="1:57689">
+                    <StateTransition stateToId="1:57690" id="1:57692"/>
+                </EntryState>
+                <AnimationState animationId="1:57671" x="160" stateName="Live" id="1:57690">
+                    <StateTransition stateToId="1:57691" enableExitTime="true" duration="1000" exitTime="20000" id="1:57693"/>
+                    <StateTransition stateToId="1:58757" id="1:58759">
+                        <TransitionViewModelCondition id="1:58767">
+                            <TransitionPropertyViewModelComparator id="1:58768">
+                                <BindablePropertyTrigger id="1:58769">
+                                    <DataBindContext sourcePathIds="1:14-1:58748" propertyKey="686" id="1:58770"/>
+                                </BindablePropertyTrigger>
+                            </TransitionPropertyViewModelComparator>
+                            <TransitionValueTriggerComparator id="1:58771"/>
+                        </TransitionViewModelCondition>
+                    </StateTransition>
+                </AnimationState>
+                <AnimationState animationId="1:57672" x="400" stateName="Frozen" id="1:57691">
+                    <StateTransition stateToId="1:57690" duration="300" id="1:58758">
+                        <TransitionViewModelCondition id="1:58762">
+                            <TransitionPropertyViewModelComparator id="1:58763">
+                                <BindablePropertyTrigger id="1:58764">
+                                    <DataBindContext sourcePathIds="1:14-1:58748" propertyKey="686" id="1:58765"/>
+                                </BindablePropertyTrigger>
+                            </TransitionPropertyViewModelComparator>
+                            <TransitionValueTriggerComparator id="1:58766"/>
+                        </TransitionViewModelCondition>
+                    </StateTransition>
+                </AnimationState>
+                <AnimationState animationId="1:57671" x="160" y="120" stateName="Live 2" id="1:58757">
+                    <StateTransition stateToId="1:57690" id="1:58760">
+                        <TransitionViewModelCondition id="1:58772">
+                            <TransitionPropertyViewModelComparator id="1:58773">
+                                <BindablePropertyTrigger id="1:58774">
+                                    <DataBindContext sourcePathIds="1:14-1:58748" propertyKey="686" id="1:58775"/>
+                                </BindablePropertyTrigger>
+                            </TransitionPropertyViewModelComparator>
+                            <TransitionValueTriggerComparator id="1:58776"/>
+                        </TransitionViewModelCondition>
+                    </StateTransition>
+                    <StateTransition stateToId="1:57691" enableExitTime="true" duration="1000" exitTime="20000" id="1:58761"/>
+                </AnimationState>
+            </StateMachineLayer>
+        </StateMachine>
+        <LinearAnimation duration="1200" name="IdleLive" id="1:57671">
+            <KeyedObject objectId="1:57669" id="1:57673">
+                <KeyedProperty property="propertyValue" id="1:57674">
+                    <KeyFrameBool id="1:57675"/>
+                    <KeyFrameBool frame="1200" id="1:57676"/>
+                </KeyedProperty>
+            </KeyedObject>
+        </LinearAnimation>
+        <LinearAnimation duration="30" viewEnd="30" name="IdleFrozen" id="1:57672">
+            <KeyedObject objectId="1:57669" id="1:57677">
+                <KeyedProperty property="propertyValue" id="1:57678">
+                    <KeyFrameBool value="true" id="1:57679"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:18648" id="1:57680">
+                <KeyedProperty property="propertyValue" id="1:57681">
+                    <KeyFrameDouble interpolationType="linear" id="1:57682"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:48798" id="1:57683">
+                <KeyedProperty property="propertyValue" id="1:57684">
+                    <KeyFrameDouble interpolationType="linear" id="1:57685"/>
+                </KeyedProperty>
+            </KeyedObject>
+        </LinearAnimation>
+        <LinearAnimation duration="120" name="noPromo" folderId="1:53668" id="1:6">
+            <KeyedObject objectId="1:26" id="0:91">
+                <KeyedProperty property="y" id="0:92">
+                    <KeyFrameDouble interpolationType="linear" id="0:93"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:18372" id="1:18504">
+                <KeyedProperty property="colorValue" id="1:18505">
+                    <KeyFrameColor value="FFFFFFFF" interpolationType="linear" id="1:18506"/>
+                </KeyedProperty>
+                <KeyedProperty property="position" id="1:18507">
+                    <KeyFrameDouble value="1" interpolationType="linear" id="1:18508"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:18370" id="1:18509">
+                <KeyedProperty property="startX" id="1:18510">
+                    <KeyFrameDouble value="180" interpolationType="linear" id="1:18511"/>
+                </KeyedProperty>
+                <KeyedProperty property="endX" id="1:18512">
+                    <KeyFrameDouble value="182.27686" interpolationType="linear" id="1:18513"/>
+                </KeyedProperty>
+                <KeyedProperty property="endY" id="1:18514">
+                    <KeyFrameDouble value="250" interpolationType="linear" id="1:18515"/>
+                </KeyedProperty>
+                <KeyedProperty property="startY" id="1:18516">
+                    <KeyFrameDouble interpolationType="linear" id="1:18517"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:18371" id="1:18518">
+                <KeyedProperty property="position" id="1:18519">
+                    <KeyFrameDouble interpolationType="linear" id="1:18520"/>
+                </KeyedProperty>
+                <KeyedProperty property="colorValue" id="1:18521">
+                    <KeyFrameColor value="FFC4C9D5" interpolationType="linear" id="1:18522"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:18382" id="1:18523">
+                <KeyedProperty property="colorValue" id="1:18524">
+                    <KeyFrameColor value="FFE1E5ED" interpolationType="linear" id="1:18525"/>
+                </KeyedProperty>
+                <KeyedProperty property="position" id="1:18526">
+                    <KeyFrameDouble value="0.58095002" interpolationType="linear" id="1:18527"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:18625" id="1:18627">
+                <KeyedProperty property="propertyValue" id="1:18628">
+                    <KeyFrameDouble value="40" interpolationType="linear" id="0:195"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:48909" id="1:48916">
+                <KeyedProperty property="speed" id="1:48917">
+                    <KeyFrameDouble value="0.60000002" interpolationType="linear" id="1:48918"/>
+                </KeyedProperty>
+                <KeyedProperty property="opacity" id="1:48960">
+                    <KeyFrameDouble value="0.5" interpolationType="linear" id="1:48961"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:48798" id="1:49045">
+                <KeyedProperty property="propertyValue" id="1:49046">
+                    <KeyFrameDouble value="100" interpolationType="linear" id="1:49047"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:48794" id="1:49678">
+                <KeyedProperty property="propertyValue" id="1:49679">
+                    <KeyFrameDouble value="5" interpolationType="linear" id="1:49680"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:18648" id="1:49846">
+                <KeyedProperty property="propertyValue" id="1:49847">
+                    <KeyFrameDouble value="6" interpolationType="linear" id="0:197"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:18645" id="1:49849">
+                <KeyedProperty property="propertyValue" id="1:49850">
+                    <KeyFrameDouble value="3" interpolationType="linear" id="0:196"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:48793" id="1:49898">
+                <KeyedProperty property="propertyValue" id="1:49899">
+                    <KeyFrameDouble value="1" interpolationType="linear" id="1:49900"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:48796" id="1:49901">
+                <KeyedProperty property="propertyValue" id="1:49902">
+                    <KeyFrameDouble value="10" interpolationType="linear" id="1:49903"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:48797" id="1:49904">
+                <KeyedProperty property="propertyValue" id="1:49905">
+                    <KeyFrameDouble value="70" interpolationType="linear" id="1:49906"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:48800" id="1:49907">
+                <KeyedProperty property="propertyValue" id="1:49908">
+                    <KeyFrameDouble value="1" interpolationType="linear" id="1:49909"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:53663" id="1:53665">
+                <KeyedProperty property="speed" id="1:53666">
+                    <KeyFrameDouble value="1.2" interpolationType="linear" id="1:53667"/>
+                </KeyedProperty>
+                <KeyedProperty property="opacity" id="1:53697">
+                    <KeyFrameDouble value="0.40000001" interpolationType="linear" id="1:53698"/>
+                </KeyedProperty>
+            </KeyedObject>
+        </LinearAnimation>
+        <LinearAnimation duration="120" name="quickStart" folderId="1:53668" id="0:55">
+            <KeyedObject objectId="1:26" id="0:94">
+                <KeyedProperty property="y" id="0:95">
+                    <KeyFrameDouble interpolationType="cubic" id="0:96">
+                        <CubicEaseInterpolator x2="0.05866931" id="0:104"/>
+                    </KeyFrameDouble>
+                    <KeyFrameDouble value="-5" interpolationType="cubic" frame="30" id="0:98">
+                        <CubicEaseInterpolator x2="0.05866931" id="0:103"/>
+                    </KeyFrameDouble>
+                    <KeyFrameDouble interpolationType="cubic" frame="120" id="0:97">
+                        <CubicEaseInterpolator x2="0.05866931" id="0:102"/>
+                    </KeyFrameDouble>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:18370" id="1:18480">
+                <KeyedProperty property="startY" id="1:18481">
+                    <KeyFrameDouble interpolationType="linear" id="1:18482"/>
+                </KeyedProperty>
+                <KeyedProperty property="endX" id="1:18483">
+                    <KeyFrameDouble value="182.27686" interpolationType="linear" id="1:18484"/>
+                </KeyedProperty>
+                <KeyedProperty property="endY" id="1:18485">
+                    <KeyFrameDouble value="250" interpolationType="linear" id="1:18486"/>
+                </KeyedProperty>
+                <KeyedProperty property="startX" id="1:18487">
+                    <KeyFrameDouble value="180" interpolationType="linear" id="1:18488"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:18372" id="1:18489">
+                <KeyedProperty property="colorValue" id="1:18490">
+                    <KeyFrameColor value="FFFFFFFF" interpolationType="linear" id="1:18491"/>
+                </KeyedProperty>
+                <KeyedProperty property="position" id="1:18492">
+                    <KeyFrameDouble value="1" interpolationType="linear" id="1:18493"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:18382" id="1:18494">
+                <KeyedProperty property="position" id="1:18495">
+                    <KeyFrameDouble value="0.57675999" interpolationType="linear" id="1:18496"/>
+                </KeyedProperty>
+                <KeyedProperty property="colorValue" id="1:18497">
+                    <KeyFrameColor value="FFBBD8F9" interpolationType="linear" id="1:18498"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:18371" id="1:18499">
+                <KeyedProperty property="colorValue" id="1:18500">
+                    <KeyFrameColor value="FF8DBEF5" interpolationType="linear" id="1:18501"/>
+                </KeyedProperty>
+                <KeyedProperty property="position" id="1:18502">
+                    <KeyFrameDouble interpolationType="linear" id="1:18503"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:18625" id="1:18630">
+                <KeyedProperty property="propertyValue" id="1:18631">
+                    <KeyFrameDouble value="50" interpolationType="linear" id="1:18632"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:48909" id="1:48931">
+                <KeyedProperty property="speed" id="1:48932">
+                    <KeyFrameDouble value="0.69999999" interpolationType="linear" id="1:48933"/>
+                </KeyedProperty>
+                <KeyedProperty property="opacity" id="1:48962">
+                    <KeyFrameDouble value="0.30000001" interpolationType="linear" id="1:48963"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:48798" id="1:49042">
+                <KeyedProperty property="propertyValue" id="1:49043">
+                    <KeyFrameDouble value="200" interpolationType="linear" id="1:49044"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:18645" id="1:49852">
+                <KeyedProperty property="propertyValue" id="1:49853">
+                    <KeyFrameDouble value="3" interpolationType="linear" id="1:49854"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:18648" id="1:49855">
+                <KeyedProperty property="propertyValue" id="1:49856">
+                    <KeyFrameDouble value="7" interpolationType="linear" id="1:49857"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:48794" id="1:49895">
+                <KeyedProperty property="propertyValue" id="1:49896">
+                    <KeyFrameDouble value="10" interpolationType="linear" id="1:49897"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:48793" id="1:49910">
+                <KeyedProperty property="propertyValue" id="1:49911">
+                    <KeyFrameDouble value="1" interpolationType="linear" id="1:49912"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:48796" id="1:49913">
+                <KeyedProperty property="propertyValue" id="1:49914">
+                    <KeyFrameDouble value="30" interpolationType="linear" id="1:49915"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:48797" id="1:49916">
+                <KeyedProperty property="propertyValue" id="1:49917">
+                    <KeyFrameDouble interpolationType="cubic" id="1:49981">
+                        <CubicEaseInterpolator x1="0.60000002" x2="0.83999997" y2="0.60000002" id="0:193"/>
+                    </KeyFrameDouble>
+                    <KeyFrameDouble value="70" interpolationType="cubic" frame="60" id="1:49918">
+                        <CubicEaseInterpolator x1="0.60000002" x2="0.83999997" y2="0.60000002" id="0:194"/>
+                    </KeyFrameDouble>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:48800" id="1:49919">
+                <KeyedProperty property="propertyValue" id="1:49920">
+                    <KeyFrameDouble value="1" interpolationType="linear" id="1:49921"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:53663" id="1:53670">
+                <KeyedProperty property="speed" id="1:53671">
+                    <KeyFrameDouble value="1.2" interpolationType="linear" id="1:53672"/>
+                    <KeyFrameDouble value="1.5" interpolationType="linear" frame="120" id="1:57665"/>
+                </KeyedProperty>
+                <KeyedProperty property="opacity" id="1:53685">
+                    <KeyFrameDouble interpolationType="cubic" id="1:53703">
+                        <CubicEaseInterpolator x1="0.60000002" x2="0.83999997" y2="0.60000002" id="1:53701"/>
+                    </KeyFrameDouble>
+                    <KeyFrameDouble value="0.5" interpolationType="cubic" frame="60" id="1:53702">
+                        <CubicEaseInterpolator x1="0.60000002" x2="0.83999997" y2="0.60000002" id="1:53700"/>
+                    </KeyFrameDouble>
+                </KeyedProperty>
+            </KeyedObject>
+        </LinearAnimation>
+        <LinearAnimation duration="120" name="standart" folderId="1:53668" id="1:18330">
+            <KeyedObject objectId="1:26" id="0:154">
+                <KeyedProperty property="y" id="0:155">
+                    <KeyFrameDouble interpolationType="cubic" id="0:158">
+                        <CubicEaseInterpolator x2="0.05866931" id="0:150"/>
+                    </KeyFrameDouble>
+                    <KeyFrameDouble value="-5" interpolationType="cubic" frame="30" id="0:157">
+                        <CubicEaseInterpolator x2="0.05866931" id="0:149"/>
+                    </KeyFrameDouble>
+                    <KeyFrameDouble interpolationType="cubic" frame="120" id="0:156">
+                        <CubicEaseInterpolator x2="0.05866931" id="0:148"/>
+                    </KeyFrameDouble>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:18382" id="1:18432">
+                <KeyedProperty property="colorValue" id="1:18433">
+                    <KeyFrameColor value="FF8DBEF5" interpolationType="linear" id="1:18434"/>
+                </KeyedProperty>
+                <KeyedProperty property="position" id="1:18435">
+                    <KeyFrameDouble value="0.67733002" interpolationType="linear" id="1:18436"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:18370" id="1:18437">
+                <KeyedProperty property="endX" id="1:18438">
+                    <KeyFrameDouble value="182.27686" interpolationType="linear" id="1:18439"/>
+                </KeyedProperty>
+                <KeyedProperty property="startY" id="1:18440">
+                    <KeyFrameDouble interpolationType="linear" id="1:18441"/>
+                </KeyedProperty>
+                <KeyedProperty property="startX" id="1:18442">
+                    <KeyFrameDouble value="180" interpolationType="linear" id="1:18443"/>
+                </KeyedProperty>
+                <KeyedProperty property="endY" id="1:18444">
+                    <KeyFrameDouble value="250" interpolationType="linear" id="1:18445"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:18371" id="1:18446">
+                <KeyedProperty property="colorValue" id="1:18447">
+                    <KeyFrameColor value="FF3189ED" interpolationType="linear" id="1:18448"/>
+                </KeyedProperty>
+                <KeyedProperty property="position" id="1:18449">
+                    <KeyFrameDouble interpolationType="linear" id="1:18450"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:18372" id="1:18451">
+                <KeyedProperty property="colorValue" id="1:18452">
+                    <KeyFrameColor value="FFFFFFFF" interpolationType="linear" id="1:18453"/>
+                </KeyedProperty>
+                <KeyedProperty property="position" id="1:18454">
+                    <KeyFrameDouble value="1" interpolationType="linear" id="1:18455"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:18625" id="1:18636">
+                <KeyedProperty property="propertyValue" id="1:18637">
+                    <KeyFrameDouble value="80" interpolationType="linear" id="1:18638"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:48909" id="1:48925">
+                <KeyedProperty property="speed" id="1:48926">
+                    <KeyFrameDouble value="1.5" interpolationType="linear" id="1:48927"/>
+                </KeyedProperty>
+                <KeyedProperty property="opacity" id="1:48966">
+                    <KeyFrameDouble value="0.30000001" interpolationType="linear" id="1:48967"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:48798" id="1:49036">
+                <KeyedProperty property="propertyValue" id="1:49037">
+                    <KeyFrameDouble value="450" interpolationType="linear" id="1:49038"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:18645" id="1:49864">
+                <KeyedProperty property="propertyValue" id="1:49865">
+                    <KeyFrameDouble value="6" interpolationType="linear" id="1:49866"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:18648" id="1:49867">
+                <KeyedProperty property="propertyValue" id="1:49868">
+                    <KeyFrameDouble value="10" interpolationType="linear" id="1:49869"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:48794" id="1:49889">
+                <KeyedProperty property="propertyValue" id="1:49890">
+                    <KeyFrameDouble value="20" interpolationType="linear" id="1:49891"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:48793" id="1:49934">
+                <KeyedProperty property="propertyValue" id="1:49935">
+                    <KeyFrameDouble value="1" interpolationType="linear" id="1:49936"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:48796" id="1:49937">
+                <KeyedProperty property="propertyValue" id="1:49938">
+                    <KeyFrameDouble value="30" interpolationType="linear" id="1:49939"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:48797" id="1:49940">
+                <KeyedProperty property="propertyValue" id="1:49941">
+                    <KeyFrameDouble interpolationType="cubic" id="1:49985">
+                        <CubicEaseInterpolator x1="0.60000002" x2="0.83999997" y2="0.60000002" id="0:189"/>
+                    </KeyFrameDouble>
+                    <KeyFrameDouble value="70" interpolationType="cubic" frame="60" id="1:49984">
+                        <CubicEaseInterpolator x1="0.60000002" x2="0.83999997" y2="0.60000002" id="0:190"/>
+                    </KeyFrameDouble>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:48800" id="1:49943">
+                <KeyedProperty property="propertyValue" id="1:49944">
+                    <KeyFrameDouble value="1" interpolationType="linear" id="1:49945"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:53663" id="1:53676">
+                <KeyedProperty property="speed" id="1:53677">
+                    <KeyFrameDouble value="1.8" interpolationType="linear" id="1:53678"/>
+                </KeyedProperty>
+                <KeyedProperty property="opacity" id="1:53690">
+                    <KeyFrameDouble interpolationType="cubic" id="1:53691">
+                        <CubicEaseInterpolator x1="0.60000002" x2="0.83999997" y2="0.60000002" id="1:53710"/>
+                    </KeyFrameDouble>
+                    <KeyFrameDouble value="0.80000001" interpolationType="cubic" frame="60" id="1:53708">
+                        <CubicEaseInterpolator x1="0.60000002" x2="0.83999997" y2="0.60000002" id="1:53709"/>
+                    </KeyFrameDouble>
+                </KeyedProperty>
+            </KeyedObject>
+        </LinearAnimation>
+        <AnimationFolder name="MainStates" id="1:53668"/>
+        <LinearAnimation duration="120" name="active" folderId="1:53668" id="1:18331">
+            <KeyedObject objectId="1:26" id="0:165">
+                <KeyedProperty property="y" id="0:166">
+                    <KeyFrameDouble interpolationType="cubic" id="0:169">
+                        <CubicEaseInterpolator x2="0.05866931" id="0:161"/>
+                    </KeyFrameDouble>
+                    <KeyFrameDouble value="-5" interpolationType="cubic" frame="30" id="0:168">
+                        <CubicEaseInterpolator x2="0.05866931" id="0:160"/>
+                    </KeyFrameDouble>
+                    <KeyFrameDouble interpolationType="cubic" frame="120" id="0:167">
+                        <CubicEaseInterpolator x2="0.05866931" id="0:159"/>
+                    </KeyFrameDouble>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:18370" id="1:18373">
+                <KeyedProperty property="startX" id="1:18374">
+                    <KeyFrameDouble value="180" interpolationType="linear" id="1:18375"/>
+                </KeyedProperty>
+                <KeyedProperty property="startY" id="1:18376">
+                    <KeyFrameDouble interpolationType="linear" id="1:18377"/>
+                </KeyedProperty>
+                <KeyedProperty property="endY" id="1:18378">
+                    <KeyFrameDouble value="250" interpolationType="linear" id="1:18379"/>
+                </KeyedProperty>
+                <KeyedProperty property="endX" id="1:18380">
+                    <KeyFrameDouble value="182.27686" interpolationType="linear" id="1:18381"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:18371" id="1:18383">
+                <KeyedProperty property="colorValue" id="1:18384">
+                    <KeyFrameColor value="FF0C4B94" interpolationType="linear" id="1:18385"/>
+                </KeyedProperty>
+                <KeyedProperty property="position" id="1:18394">
+                    <KeyFrameDouble interpolationType="linear" id="1:18395"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:18382" id="1:18386">
+                <KeyedProperty property="colorValue" id="1:18387">
+                    <KeyFrameColor value="FF3189ED" interpolationType="linear" id="1:18388"/>
+                </KeyedProperty>
+                <KeyedProperty property="position" id="1:18392">
+                    <KeyFrameDouble value="0.46781" interpolationType="linear" id="1:18393"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:18372" id="1:18389">
+                <KeyedProperty property="colorValue" id="1:18390">
+                    <KeyFrameColor value="FFFFFFFF" interpolationType="linear" id="1:18391"/>
+                </KeyedProperty>
+                <KeyedProperty property="position" id="1:18396">
+                    <KeyFrameDouble value="1" interpolationType="linear" id="1:18397"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:18625" id="1:18639">
+                <KeyedProperty property="propertyValue" id="1:18640">
+                    <KeyFrameDouble value="100" interpolationType="linear" id="1:18641"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:48909" id="1:48922">
+                <KeyedProperty property="speed" id="1:48923">
+                    <KeyFrameDouble value="2" interpolationType="linear" id="1:48924"/>
+                </KeyedProperty>
+                <KeyedProperty property="opacity" id="1:48968">
+                    <KeyFrameDouble value="0.30000001" interpolationType="linear" id="1:48969"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:48798" id="1:49033">
+                <KeyedProperty property="propertyValue" id="1:49034">
+                    <KeyFrameDouble value="600" interpolationType="linear" id="1:49035"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:18645" id="1:49870">
+                <KeyedProperty property="propertyValue" id="1:49871">
+                    <KeyFrameDouble value="8" interpolationType="linear" id="1:49872"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:18648" id="1:49873">
+                <KeyedProperty property="propertyValue" id="1:49874">
+                    <KeyFrameDouble value="12" interpolationType="linear" id="1:49875"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:48794" id="1:49886">
+                <KeyedProperty property="propertyValue" id="1:49887">
+                    <KeyFrameDouble value="30" interpolationType="linear" id="1:49888"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:48793" id="1:49946">
+                <KeyedProperty property="propertyValue" id="1:49947">
+                    <KeyFrameDouble value="1" interpolationType="linear" id="1:49948"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:48796" id="1:49949">
+                <KeyedProperty property="propertyValue" id="1:49950">
+                    <KeyFrameDouble value="30" interpolationType="linear" id="1:49951"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:48797" id="1:49952">
+                <KeyedProperty property="propertyValue" id="1:49953">
+                    <KeyFrameDouble interpolationType="cubic" id="1:49987">
+                        <CubicEaseInterpolator x1="0.60000002" x2="0.83999997" y2="0.60000002" id="0:187"/>
+                    </KeyFrameDouble>
+                    <KeyFrameDouble value="70" interpolationType="cubic" frame="60" id="1:49986">
+                        <CubicEaseInterpolator x1="0.60000002" x2="0.83999997" y2="0.60000002" id="0:188"/>
+                    </KeyFrameDouble>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:48800" id="1:49955">
+                <KeyedProperty property="propertyValue" id="1:49956">
+                    <KeyFrameDouble value="1" interpolationType="linear" id="1:49957"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:53663" id="1:53679">
+                <KeyedProperty property="speed" id="1:53680">
+                    <KeyFrameDouble value="2" interpolationType="linear" id="1:53681"/>
+                </KeyedProperty>
+                <KeyedProperty property="opacity" id="1:53692">
+                    <KeyFrameDouble interpolationType="cubic" id="1:53712">
+                        <CubicEaseInterpolator x1="0.60000002" x2="0.83999997" y2="0.60000002" id="1:53713"/>
+                    </KeyFrameDouble>
+                    <KeyFrameDouble value="1" interpolationType="cubic" frame="60" id="1:53693">
+                        <CubicEaseInterpolator x1="0.60000002" x2="0.83999997" y2="0.60000002" id="1:53714"/>
+                    </KeyFrameDouble>
+                </KeyedProperty>
+            </KeyedObject>
+        </LinearAnimation>
+        <LinearAnimation duration="120" workStart="0" workEnd="120" name="maxReach" folderId="1:53668" id="1:18332">
+            <KeyedObject objectId="1:26" id="0:176">
+                <KeyedProperty property="y" id="0:177">
+                    <KeyFrameDouble interpolationType="cubic" id="0:180">
+                        <CubicEaseInterpolator x2="0.05866931" id="0:172"/>
+                    </KeyFrameDouble>
+                    <KeyFrameDouble value="-5" interpolationType="cubic" frame="30" id="0:179">
+                        <CubicEaseInterpolator x2="0.05866931" id="0:171"/>
+                    </KeyFrameDouble>
+                    <KeyFrameDouble interpolationType="cubic" frame="120" id="0:178">
+                        <CubicEaseInterpolator x2="0.05866931" id="0:170"/>
+                    </KeyFrameDouble>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:18370" id="1:18403">
+                <KeyedProperty property="endX" id="1:18404">
+                    <KeyFrameDouble value="182.27686" interpolationType="linear" id="1:18405"/>
+                </KeyedProperty>
+                <KeyedProperty property="startY" id="1:18406">
+                    <KeyFrameDouble interpolationType="linear" id="1:18407"/>
+                </KeyedProperty>
+                <KeyedProperty property="startX" id="1:18408">
+                    <KeyFrameDouble value="180" interpolationType="linear" id="1:18409"/>
+                </KeyedProperty>
+                <KeyedProperty property="endY" id="1:18410">
+                    <KeyFrameDouble value="250" interpolationType="linear" id="1:18411"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:18371" id="1:18412">
+                <KeyedProperty property="colorValue" id="1:18413">
+                    <KeyFrameColor value="FF03172E" interpolationType="linear" id="1:18414"/>
+                </KeyedProperty>
+                <KeyedProperty property="position" id="1:18415">
+                    <KeyFrameDouble interpolationType="linear" id="1:18416"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:18372" id="1:18422">
+                <KeyedProperty property="colorValue" id="1:18423">
+                    <KeyFrameColor value="FFFFFFFF" interpolationType="linear" id="1:18424"/>
+                </KeyedProperty>
+                <KeyedProperty property="position" id="1:18425">
+                    <KeyFrameDouble value="1" interpolationType="linear" id="1:18426"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:18382" id="1:18427">
+                <KeyedProperty property="colorValue" id="1:18428">
+                    <KeyFrameColor value="FF1A7BEB" interpolationType="linear" id="1:18429"/>
+                </KeyedProperty>
+                <KeyedProperty property="position" id="1:18430">
+                    <KeyFrameDouble value="0.56418997" interpolationType="linear" id="1:18431"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:18625" id="1:18642">
+                <KeyedProperty property="propertyValue" id="1:18643">
+                    <KeyFrameDouble value="150" interpolationType="linear" id="1:18644"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:48909" id="1:48919">
+                <KeyedProperty property="speed" id="1:48920">
+                    <KeyFrameDouble value="3" interpolationType="linear" id="1:48921"/>
+                </KeyedProperty>
+                <KeyedProperty property="opacity" id="1:48958">
+                    <KeyFrameDouble value="0.2" interpolationType="linear" id="1:48959"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:48798" id="1:49030">
+                <KeyedProperty property="propertyValue" id="1:49031">
+                    <KeyFrameDouble value="1000" interpolationType="linear" id="1:49032"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:18645" id="1:49876">
+                <KeyedProperty property="propertyValue" id="1:49877">
+                    <KeyFrameDouble value="12" interpolationType="linear" id="1:49878"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:18648" id="1:49879">
+                <KeyedProperty property="propertyValue" id="1:49880">
+                    <KeyFrameDouble value="16" interpolationType="linear" id="1:49881"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:48794" id="1:49883">
+                <KeyedProperty property="propertyValue" id="1:49884">
+                    <KeyFrameDouble value="50" interpolationType="linear" id="1:49885"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:48793" id="1:49958">
+                <KeyedProperty property="propertyValue" id="1:49959">
+                    <KeyFrameDouble value="1" interpolationType="linear" id="1:49960"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:48796" id="1:49961">
+                <KeyedProperty property="propertyValue" id="1:49962">
+                    <KeyFrameDouble value="100" interpolationType="linear" id="1:49963"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:48797" id="1:49964">
+                <KeyedProperty property="propertyValue" id="1:49965">
+                    <KeyFrameDouble interpolationType="cubic" id="1:49989">
+                        <CubicEaseInterpolator x1="0.59626621" x2="0.84405279" y2="0.59668422" id="0:186"/>
+                    </KeyFrameDouble>
+                    <KeyFrameDouble value="70" interpolationType="cubic" frame="120" id="1:49988">
+                        <CubicEaseInterpolator x1="0.59626621" x2="0.84405279" y2="0.59668422" id="0:185"/>
+                    </KeyFrameDouble>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:48800" id="1:49967">
+                <KeyedProperty property="propertyValue" id="1:49968">
+                    <KeyFrameDouble value="1" interpolationType="linear" id="1:49969"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <KeyedObject objectId="1:53663" id="1:53682">
+                <KeyedProperty property="speed" id="1:53683">
+                    <KeyFrameDouble value="3" interpolationType="linear" id="1:53684"/>
+                </KeyedProperty>
+                <KeyedProperty property="opacity" id="1:53695">
+                    <KeyFrameDouble interpolationType="cubic" id="1:53696">
+                        <CubicEaseInterpolator x1="0.60000002" x2="0.83999997" y2="0.60000002" id="1:53716"/>
+                    </KeyFrameDouble>
+                    <KeyFrameDouble value="1" interpolationType="cubic" frame="60" id="1:53715">
+                        <CubicEaseInterpolator x1="0.60000002" x2="0.83999997" y2="0.60000002" id="1:53717"/>
+                    </KeyFrameDouble>
+                </KeyedProperty>
+            </KeyedObject>
+        </LinearAnimation>
+    </Artboard>
+    <Artboard originX="0.5" defaultStateMachineId="1:147" expandedComponents="1:142-1:278-1:157-1:13750-1:13776" selectedAnimations="1:147" viewModelId="1:14" viewModelInstanceId="1:15" isComponent="true" openAnimations="1:147" spaceId="1:58789" width="65" height="85" styleId="1:145" x="374" name="FlameComp" id="1:142">
+        <LayoutComponentStyle id="1:145"/>
+        <Node y="9.5" name="Root" id="1:278">
+            <Shape blendModeValue="screen" x="-0.79142249" y="24.440998" name="Front Flame 1" id="1:157">
+                <PointsPath isClosed="true" id="1:158">
+                    <CubicDetachedVertex outRotation="0.24746051" outDistance="0.77201754" x="3.7177" y="-21.824551" id="1:159"/>
+                    <CubicDetachedVertex inRotation="-1.2636396" inDistance="0.25136459" x="4.2862" y="-20.26675" id="1:160"/>
+                    <CubicDetachedVertex inRotation="-0.9086709" inDistance="1.4992" outRotation="-2.0067406" outDistance="6.8648586" x="-0.70857751" y="10.559002" id="1:161"/>
+                    <CubicDetachedVertex inRotation="1.612862" inDistance="0.78709626" outRotation="-1.5287043" outDistance="0.62975782" x="-1.8662" y="-22.228951" id="1:162"/>
+                    <CubicDetachedVertex inRotation="-2.8394108" inDistance="0.30543962" x="-0.95829999" y="-22.74255" id="1:163"/>
+                </PointsPath>
+                <Fill fillRule="clockwise" blendModeValue="screen" id="1:205">
+                    <LinearGradient startX="1.1314" startY="-22.69025" endX="-1.4651" endY="18.07955" id="1:164">
+                        <GradientStop id="1:165"/>
+                        <GradientStop colorValue="FFCEE1FF" position="0.19047619" id="1:166"/>
+                        <GradientStop colorValue="000061FF" position="1" id="1:167"/>
+                    </LinearGradient>
+                    <Feather strength="2" id="1:345"/>
+                    <ScriptedPathEffect scriptAssetId="1:5060" id="1:5747">
+                        <ScriptInputNumber propertyValue="100" name="intensity" id="1:5748">
+                            <DataBindContext sourcePathIds="1:14-1:18612" propertyKey="243" twoWay="true" id="1:9377"/>
+                        </ScriptInputNumber>
+                        <ScriptInputNumber propertyValue="6" name="amplitude" id="1:5749">
+                            <DataBindContext sourcePathIds="1:14-1:18614" propertyKey="243" id="1:17814"/>
+                        </ScriptInputNumber>
+                        <ScriptInputNumber propertyValue="0.050000001" name="frequency" id="1:5750"/>
+                        <ScriptInputNumber propertyValue="3" name="speed" id="1:5751">
+                            <DataBindContext sourcePathIds="1:14-1:18616" propertyKey="243" id="1:17818"/>
+                        </ScriptInputNumber>
+                        <ScriptInputNumber name="phase" id="1:5752"/>
+                        <ScriptInputNumber propertyValue="90" name="progressAngle" id="1:9373"/>
+                        <ScriptInputNumber name="progressStart" id="1:9374"/>
+                        <ScriptInputNumber propertyValue="100" name="progressEnd" id="1:9375"/>
+                        <ScriptInputNumber propertyValue="1.5" name="progressPower" id="1:9376"/>
+                        <ScriptInputNumber propertyValue="30" name="variation" id="1:13038"/>
+                    </ScriptedPathEffect>
+                </Fill>
+            </Shape>
+            <Shape blendModeValue="screen" x="-3.249846" y="41.5" scaleX="1.1129647" name="Back Flame 3" id="1:13750">
+                <PointsPath isClosed="true" x="-2.919054" y="-3.7659302" name="Path" id="1:13751">
+                    <CubicDetachedVertex outRotation="0.60774332" outDistance="1.9474049" x="12.05615" y="-34.758251" name="Component" id="1:13752"/>
+                    <CubicDetachedVertex inRotation="-1.5415924" inDistance="7.0068879" outRotation="1.5707964" outDistance="32.299999" x="15.16295" y="-25.32305" name="Component" id="1:13753"/>
+                    <CubicDetachedVertex inDistance="8.9618998" outRotation="3.1415927" outDistance="21.5686" x="6.2010498" y="39.40765" name="Component" id="1:13754"/>
+                    <CubicDetachedVertex x="-1.38525" y="-34.758251" name="Component" id="1:13755"/>
+                    <CubicDetachedVertex inRotation="-2.8984194" inDistance="3.1434851" x="2.1831501" y="-38.650749" name="Component" id="1:13756"/>
+                </PointsPath>
+                <Fill fillRule="clockwise" blendModeValue="multiply" name="Fill 1" id="1:13757">
+                    <LinearGradient startX="6.6019502" startY="-38.903049" endX="4.6689014" endY="30.997112" name="Component" id="1:13758">
+                        <GradientStop colorValue="FF99C2FF" name="Component" id="1:13759"/>
+                        <GradientStop colorValue="FF3894FF" position="0.38571429" name="Component" id="1:13760"/>
+                        <GradientStop colorValue="0079B1FF" position="1" name="Component" id="1:13763"/>
+                    </LinearGradient>
+                    <Feather strength="6" name="Component" id="1:13764"/>
+                    <ScriptedPathEffect scriptAssetId="1:5060" name="FlameDistortion" id="1:13765">
+                        <ScriptInputNumber propertyValue="100" name="intensity" id="1:13766">
+                            <DataBindContext sourcePathIds="1:14-1:18612" propertyKey="243" id="1:17812"/>
+                        </ScriptInputNumber>
+                        <ScriptInputNumber propertyValue="6" name="amplitude" id="1:13767">
+                            <DataBindContext sourcePathIds="1:14-1:18614" propertyKey="243" id="1:17816"/>
+                        </ScriptInputNumber>
+                        <ScriptInputNumber propertyValue="0.050000001" name="frequency" id="1:13768"/>
+                        <ScriptInputNumber propertyValue="3" name="speed" id="1:13769">
+                            <DataBindContext sourcePathIds="1:14-1:18616" propertyKey="243" id="1:17820"/>
+                        </ScriptInputNumber>
+                        <ScriptInputNumber name="phase" id="1:13770"/>
+                        <ScriptInputNumber propertyValue="90" name="progressAngle" id="1:13771"/>
+                        <ScriptInputNumber name="progressStart" id="1:13772"/>
+                        <ScriptInputNumber propertyValue="100" name="progressEnd" id="1:13773"/>
+                        <ScriptInputNumber propertyValue="1.5" name="progressPower" id="1:13774"/>
+                        <ScriptInputNumber name="variation" id="1:13775"/>
+                    </ScriptedPathEffect>
+                </Fill>
+            </Shape>
+            <Shape blendModeValue="screen" x="-7.2498455" y="42" name="Back Flame 4" id="1:13776">
+                <PointsPath isClosed="true" name="Path" id="1:13777">
+                    <CubicDetachedVertex outRotation="0.21311912" outDistance="2.7317288" x="10.664939" y="-38.078945" name="Component" id="1:13778"/>
+                    <CubicDetachedVertex inRotation="-1.7471863" inDistance="7.2323847" outRotation="1.3505344" outDistance="33.321907" x="17.493193" y="-29.633192" name="Component" id="1:13779"/>
+                    <CubicMirroredVertex rotation="3.1605504" distance="51.029926" x="9.7706003" y="39.96735" id="1:49842"/>
+                    <CubicDetachedVertex x="-1.919445" y="-34.913021" name="Component" id="1:13781"/>
+                    <CubicDetachedVertex inRotation="-3.0081537" inDistance="4.7954302" x="3.4909551" y="-39.093521" name="Component" id="1:13782"/>
+                </PointsPath>
+                <Fill fillRule="clockwise" name="Fill 1" id="1:13783">
+                    <LinearGradient startX="7.9594998" startY="-40.803051" endX="8.7894001" endY="30.822149" name="Component" id="1:13784">
+                        <GradientStop colorValue="CDDBE9FF" name="Component" id="1:13785"/>
+                        <GradientStop colorValue="000062FF" position="0.90384603" name="Component" id="1:13786"/>
+                    </LinearGradient>
+                    <Feather strength="3" name="Component" id="1:13787"/>
+                    <ScriptedPathEffect scriptAssetId="1:5060" name="FlameDistortion" id="1:13788">
+                        <ScriptInputNumber propertyValue="100" name="intensity" id="1:13789">
+                            <DataBindContext sourcePathIds="1:14-1:18612" propertyKey="243" id="1:17813"/>
+                        </ScriptInputNumber>
+                        <ScriptInputNumber propertyValue="6" name="amplitude" id="1:13790">
+                            <DataBindContext sourcePathIds="1:14-1:18614" propertyKey="243" id="1:17817"/>
+                        </ScriptInputNumber>
+                        <ScriptInputNumber propertyValue="0.050000001" name="frequency" id="1:13791"/>
+                        <ScriptInputNumber propertyValue="3" name="speed" id="1:13792">
+                            <DataBindContext sourcePathIds="1:14-1:18616" propertyKey="243" id="1:17821"/>
+                        </ScriptInputNumber>
+                        <ScriptInputNumber name="phase" id="1:13793"/>
+                        <ScriptInputNumber propertyValue="90" name="progressAngle" id="1:13794"/>
+                        <ScriptInputNumber name="progressStart" id="1:13795"/>
+                        <ScriptInputNumber propertyValue="100" name="progressEnd" id="1:13796"/>
+                        <ScriptInputNumber propertyValue="1.5" name="progressPower" id="1:13797"/>
+                        <ScriptInputNumber name="variation" id="1:13798"/>
+                    </ScriptedPathEffect>
+                </Fill>
+            </Shape>
+            <DataBindContext sourcePathIds="1:14-1:18618" propertyKey="16" converterId="1:16002" id="1:16001"/>
+            <DataBindContext sourcePathIds="1:14-1:18618" propertyKey="17" converterId="1:16002" id="1:16003"/>
+            <DataBindContext sourcePathIds="1:14-1:18620" propertyKey="18" converterId="1:16002" id="1:16005"/>
+        </Node>
+        <Fill fillRule="clockwise" isVisible="false" id="1:49676">
+            <SolidColor colorValue="FFFFFFFF" id="1:49677"/>
+        </Fill>
+        <StateMachine editingLayerId="1:148" name="FlameCompSM" id="1:147">
+            <StateMachineLayer stageZoom="1" stageX="831.26318" stageY="119.5" name="Layer 1" id="1:148">
+                <AnyState x="369" y="30" id="1:149"/>
+                <ExitState x="504" y="27" id="1:150"/>
+                <EntryState id="1:151"/>
+            </StateMachineLayer>
+        </StateMachine>
+    </Artboard>
+    <Artboard defaultStateMachineId="1:48848" selectedAnimations="1:57694" viewModelId="1:14" viewModelInstanceId="1:15" isComponent="true" spaceId="1:58789" clip="true" width="360" height="250" styleId="1:48846" x="461" name="BGComp" id="1:48843">
+        <LayoutComponentStyle layoutAlignmentType="topCenter" id="1:48846"/>
+        <LayoutComponent width="360" height="220" styleId="1:48870" id="1:48869">
+            <LayoutComponentStyle positionLeftUnitsValue="percent" positionRightUnitsValue="percent" positionTopUnitsValue="percent" positionBottomUnitsValue="percent" edgeConstraints="84" layoutAlignmentType="center" positionTypeValue="absolute" flexDirectionValue="column" layoutWidthScaleType="fill" layoutHeightScaleType="fill" widthUnitsValue="auto" heightUnitsValue="auto" id="1:48870"/>
+            <Fill fillRule="clockwise" blendModeValue="softLight" id="1:48873">
+                <LinearGradient startX="180" endX="180" endY="1320" id="1:48875">
+                    <GradientStop id="1:48876"/>
+                    <GradientStop colorValue="FF000C1A" position="0.33333334" id="1:48877"/>
+                    <GradientStop colorValue="FF000C1A" position="1" id="1:48878"/>
+                    <GradientStop position="0.66666669" id="1:48879"/>
+                </LinearGradient>
+            </Fill>
+        </LayoutComponent>
+        <LinearAnimation duration="30" name="Hold" id="1:57694">
+            <KeyedObject objectId="1:48870" id="1:57695">
+                <KeyedProperty property="positionTop" id="1:57696">
+                    <KeyFrameDouble id="1:57697"/>
+                </KeyedProperty>
+            </KeyedObject>
+        </LinearAnimation>
+        <StateMachine name="BGCompSM" id="1:48848">
+            <StateMachineLayer name="Layer 1" id="1:48849">
+                <AnyState x="400" id="1:48850"/>
+                <ExitState x="480" id="1:48851"/>
+                <EntryState id="1:48852">
+                    <StateTransition stateToId="1:48853" id="1:48854"/>
+                </EntryState>
+                <AnimationState animationId="1:48847" x="160" id="1:48853">
+                    <StateTransition stateToId="1:57698" duration="1000" id="1:57699">
+                        <TransitionViewModelCondition id="1:57700">
+                            <TransitionPropertyViewModelComparator id="1:57701">
+                                <BindablePropertyBoolean id="1:57702">
+                                    <DataBindContext sourcePathIds="1:14-1:57666" propertyKey="634" id="1:57703"/>
+                                </BindablePropertyBoolean>
+                            </TransitionPropertyViewModelComparator>
+                            <TransitionValueBooleanComparator value="true" id="1:57704"/>
+                        </TransitionViewModelCondition>
+                    </StateTransition>
+                </AnimationState>
+                <AnimationState animationId="1:57694" x="360" stateName="Hold" id="1:57698">
+                    <StateTransition stateToId="1:48853" duration="300" id="1:58777">
+                        <TransitionViewModelCondition id="1:58778">
+                            <TransitionPropertyViewModelComparator id="1:58779">
+                                <BindablePropertyBoolean id="1:58780">
+                                    <DataBindContext sourcePathIds="1:14-1:57666" propertyKey="634" id="1:58781"/>
+                                </BindablePropertyBoolean>
+                            </TransitionPropertyViewModelComparator>
+                            <TransitionValueBooleanComparator id="1:58782"/>
+                        </TransitionViewModelCondition>
+                    </StateTransition>
+                </AnimationState>
+            </StateMachineLayer>
+        </StateMachine>
+        <LinearAnimation loopValue="loop" name="Gradient" id="1:48847">
+            <KeyedObject objectId="1:48870" id="1:48881">
+                <KeyedProperty property="positionTop" id="1:48882">
+                    <KeyFrameDouble value="-400" interpolationType="linear" id="1:48884"/>
+                    <KeyFrameDouble interpolationType="linear" frame="60" id="1:48883"/>
+                </KeyedProperty>
+            </KeyedObject>
+        </LinearAnimation>
+    </Artboard>
+    <Artboard originX="0.5" originY="0.5" defaultStateMachineId="1:53525" selectedAnimations="1:57705" viewModelId="1:14" viewModelInstanceId="1:15" isComponent="true" openAnimations="1:57705" spaceId="1:58789" width="73.699997" height="118.1" styleId="1:53084" x="374" y="102" name="CarReflectionsComp" id="1:52919">
+        <LayoutComponentStyle layoutAlignmentType="center" name="Layout Style" id="1:53084"/>
+        <Node x="2.4414063e-05" y="5.0572505" name="Root" locked="true" id="1:52948">
+            <Node name="CAR" id="1:52971">
+                <Solo activeComponentId="1:52973" x="-1.0182677e-05" y="-5" scaleX="0.30599999" scaleY="0.30599999" opacity="0.64999998" name="Solo" id="1:52972">
+                    <Image assetId="1:53847" blendModeValue="lighten" name="car_00000" id="1:52973"/>
+                    <Image assetId="1:53849" blendModeValue="lighten" name="car_00002" id="1:52975"/>
+                    <Image assetId="1:53852" blendModeValue="lighten" name="car_00004" id="1:52977"/>
+                    <Image assetId="1:53854" blendModeValue="lighten" name="car_00006" id="1:52979"/>
+                    <Image assetId="1:53856" blendModeValue="lighten" name="car_00008" id="1:52981"/>
+                    <Image assetId="1:53858" blendModeValue="lighten" name="car_00010" id="1:52983"/>
+                    <Image assetId="1:53860" blendModeValue="lighten" name="car_00012" id="1:52985"/>
+                    <Image assetId="1:53862" blendModeValue="lighten" name="car_00014" id="1:52987"/>
+                    <Image assetId="1:53864" blendModeValue="lighten" name="car_00016" id="1:52989"/>
+                    <Image assetId="1:53866" blendModeValue="lighten" name="car_00018" id="1:52991"/>
+                    <Image assetId="1:53868" blendModeValue="lighten" name="car_00020" id="1:52993"/>
+                    <Image assetId="1:53870" blendModeValue="lighten" name="car_00022" id="1:52995"/>
+                    <Image assetId="1:53872" blendModeValue="lighten" name="car_00024" id="1:52997"/>
+                    <Image assetId="1:53874" blendModeValue="lighten" name="car_00026" id="1:52999"/>
+                    <Image assetId="1:53876" blendModeValue="lighten" name="car_00028" id="1:53001"/>
+                    <Image assetId="1:53879" blendModeValue="lighten" name="car_00031" id="1:53004"/>
+                    <Image assetId="1:53881" blendModeValue="lighten" name="car_00033" id="1:53006"/>
+                    <Image assetId="1:53883" blendModeValue="lighten" name="car_00035" id="1:53008"/>
+                    <Image assetId="1:53885" blendModeValue="lighten" name="car_00037" id="1:53010"/>
+                    <Image assetId="1:53887" blendModeValue="lighten" name="car_00039" id="1:53012"/>
+                    <Image assetId="1:53889" blendModeValue="lighten" name="car_00041" id="1:53014"/>
+                    <Image assetId="1:53891" blendModeValue="lighten" name="car_00043" id="1:53016"/>
+                    <Image assetId="1:53893" blendModeValue="lighten" name="car_00045" id="1:53018"/>
+                    <Image assetId="1:53895" blendModeValue="lighten" name="car_00047" id="1:53020"/>
+                    <Image assetId="1:53897" blendModeValue="lighten" name="car_00049" id="1:53022"/>
+                    <Image assetId="1:53899" blendModeValue="lighten" name="car_00051" id="1:53024"/>
+                    <Image assetId="1:53901" blendModeValue="lighten" name="car_00053" id="1:53026"/>
+                    <Image assetId="1:53903" blendModeValue="lighten" name="car_00055" id="1:53028"/>
+                    <Image assetId="1:53905" blendModeValue="lighten" name="car_00057" id="1:53030"/>
+                    <Image assetId="1:53907" blendModeValue="lighten" name="car_00059" id="1:53032"/>
+                </Solo>
+            </Node>
+        </Node>
+        <LinearAnimation duration="30" viewEnd="30" name="Hold" id="1:57705">
+            <KeyedObject objectId="1:52972" id="1:57706">
+                <KeyedProperty property="activeComponentId" id="1:57707">
+                    <KeyFrameId value="1:52973" id="1:57708"/>
+                </KeyedProperty>
+            </KeyedObject>
+        </LinearAnimation>
+        <StateMachine name="ReflectionsSM" id="1:53525">
+            <StateMachineLayer name="Reflections" id="1:53527">
+                <ExitState x="480" id="1:53528"/>
+                <EntryState x="-114" y="-77" id="1:53529">
+                    <StateTransition stateToId="1:53531" id="1:53530"/>
+                </EntryState>
+                <AnimationState animationId="1:53537" x="107.23682" y="-74.400002" id="1:53531">
+                    <StateTransition stateToId="1:57709" id="1:57710">
+                        <TransitionViewModelCondition id="1:57711">
+                            <TransitionPropertyViewModelComparator id="1:57712">
+                                <BindablePropertyBoolean id="1:57713">
+                                    <DataBindContext sourcePathIds="1:14-1:57666" propertyKey="634" id="1:57714"/>
+                                </BindablePropertyBoolean>
+                            </TransitionPropertyViewModelComparator>
+                            <TransitionValueBooleanComparator value="true" id="1:57715"/>
+                        </TransitionViewModelCondition>
+                    </StateTransition>
+                </AnimationState>
+                <AnyState x="400" id="1:53532"/>
+                <AnimationState animationId="1:57705" x="340" y="-74" stateName="Hold" id="1:57709">
+                    <StateTransition stateToId="1:53531" id="1:58783">
+                        <TransitionViewModelCondition id="1:58784">
+                            <TransitionPropertyViewModelComparator id="1:58785">
+                                <BindablePropertyBoolean id="1:58786">
+                                    <DataBindContext sourcePathIds="1:14-1:57666" propertyKey="634" id="1:58787"/>
+                                </BindablePropertyBoolean>
+                            </TransitionPropertyViewModelComparator>
+                            <TransitionValueBooleanComparator id="1:58788"/>
+                        </TransitionViewModelCondition>
+                    </StateTransition>
+                </AnimationState>
+            </StateMachineLayer>
+        </StateMachine>
+        <LinearAnimation fps="30" duration="58" loopValue="loop" name="Reflections" id="1:53537">
+            <KeyedObject objectId="1:52972" id="1:53538">
+                <KeyedProperty property="activeComponentId" id="1:53539">
+                    <KeyFrameId value="1:52973" id="1:53598"/>
+                    <KeyFrameId value="1:52975" frame="2" id="1:53596"/>
+                    <KeyFrameId value="1:52977" frame="4" id="1:53594"/>
+                    <KeyFrameId value="1:52979" frame="6" id="1:53592"/>
+                    <KeyFrameId value="1:52981" frame="8" id="1:53590"/>
+                    <KeyFrameId value="1:52983" frame="10" id="1:53588"/>
+                    <KeyFrameId value="1:52985" frame="12" id="1:53586"/>
+                    <KeyFrameId value="1:52987" frame="14" id="1:53584"/>
+                    <KeyFrameId value="1:52989" frame="16" id="1:53582"/>
+                    <KeyFrameId value="1:52991" frame="18" id="1:53580"/>
+                    <KeyFrameId value="1:52993" frame="20" id="1:53578"/>
+                    <KeyFrameId value="1:52995" frame="22" id="1:53576"/>
+                    <KeyFrameId value="1:52997" frame="24" id="1:53574"/>
+                    <KeyFrameId value="1:52999" frame="26" id="1:53572"/>
+                    <KeyFrameId value="1:53001" frame="28" id="1:53570"/>
+                    <KeyFrameId value="1:53004" frame="30" id="1:53568"/>
+                    <KeyFrameId value="1:53006" frame="32" id="1:53566"/>
+                    <KeyFrameId value="1:53008" frame="34" id="1:53564"/>
+                    <KeyFrameId value="1:53010" frame="36" id="1:53562"/>
+                    <KeyFrameId value="1:53012" frame="38" id="1:53560"/>
+                    <KeyFrameId value="1:53014" frame="40" id="1:53558"/>
+                    <KeyFrameId value="1:53016" frame="42" id="1:53556"/>
+                    <KeyFrameId value="1:53018" frame="44" id="1:53554"/>
+                    <KeyFrameId value="1:53020" frame="46" id="1:53552"/>
+                    <KeyFrameId value="1:53022" frame="48" id="1:53550"/>
+                    <KeyFrameId value="1:53024" frame="50" id="1:53548"/>
+                    <KeyFrameId value="1:53026" frame="52" id="1:53546"/>
+                    <KeyFrameId value="1:53028" frame="54" id="1:53544"/>
+                    <KeyFrameId value="1:53030" frame="56" id="1:53542"/>
+                    <KeyFrameId value="1:53032" frame="58" id="1:53540"/>
+                </KeyedProperty>
+            </KeyedObject>
+        </LinearAnimation>
+    </Artboard>
+    <DataConverterSystemNormalizer operationValue="0.0099999998" operationType="multiply" name="Normalize" groupId="1:17910" id="1:16002"/>
+    <DataConverterTrigger name="Trigger 1" id="1:58756"/>
+    <DataEnumCustom name="PromoType" groupId="1:53934" id="1:18537">
+        <DataEnumValue key="maxReach" id="1:18544"/>
+        <DataEnumValue key="active" id="1:18543"/>
+        <DataEnumValue key="standart" id="1:18542"/>
+        <DataEnumValue key="quickStart" id="1:18540"/>
+        <DataEnumValue key="noPromo" id="1:18539"/>
+    </DataEnumCustom>
+    <DataEnumSystem id="1:0">
+        <DataEnumValue key="Left align" id="2:0"/>
+        <DataEnumValue key="Right align" id="3:0"/>
+        <DataEnumValue key="Center align" id="4:0"/>
+        <DataEnumValue key="Justify" id="89:0"/>
+    </DataEnumSystem>
+    <DataEnumSystem enumType="verticalTextAlign" id="5:0">
+        <DataEnumValue key="Top align" id="6:0"/>
+        <DataEnumValue key="Middle align" id="7:0"/>
+        <DataEnumValue key="Bottom align" id="8:0"/>
+    </DataEnumSystem>
+    <DataEnumSystem enumType="textBox" id="9:0">
+        <DataEnumValue key="Auto Width" id="10:0"/>
+        <DataEnumValue key="Auto Height" id="11:0"/>
+        <DataEnumValue key="Fixed Size" id="12:0"/>
+    </DataEnumSystem>
+    <DataEnumSystem enumType="textOverflow" id="13:0">
+        <DataEnumValue key="Visible" id="14:0"/>
+        <DataEnumValue key="Hidden" id="15:0"/>
+        <DataEnumValue key="Clipped" id="16:0"/>
+        <DataEnumValue key="Ellipsis" id="17:0"/>
+        <DataEnumValue key="Fit" id="18:0"/>
+        <DataEnumValue key="Fit Font Size" id="66:0"/>
+    </DataEnumSystem>
+    <DataEnumSystem enumType="wordWrap" id="19:0">
+        <DataEnumValue key="Wrap" id="20:0"/>
+        <DataEnumValue key="No Wrap" id="21:0"/>
+    </DataEnumSystem>
+    <DataEnumSystem enumType="layoutFlexDirection" id="22:0">
+        <DataEnumValue key="Column" id="23:0"/>
+        <DataEnumValue key="Column Reverse" id="24:0"/>
+        <DataEnumValue key="Row" id="25:0"/>
+        <DataEnumValue key="Row Reverse" id="26:0"/>
+    </DataEnumSystem>
+    <DataEnumSystem enumType="layoutWrap" id="27:0">
+        <DataEnumValue key="No Wrap" id="28:0"/>
+        <DataEnumValue key="Wrap" id="29:0"/>
+        <DataEnumValue key="Wrap Reverse" id="30:0"/>
+    </DataEnumSystem>
+    <DataEnumSystem enumType="layoutDirection" id="31:0">
+        <DataEnumValue key="Inherit" id="32:0"/>
+        <DataEnumValue key="Left to Right" id="33:0"/>
+        <DataEnumValue key="Right to Left" id="34:0"/>
+    </DataEnumSystem>
+    <DataEnumSystem enumType="layoutAlignment" id="35:0">
+        <DataEnumValue key="Top Left" id="36:0"/>
+        <DataEnumValue key="Top Center" id="37:0"/>
+        <DataEnumValue key="Top Right" id="38:0"/>
+        <DataEnumValue key="Center Left" id="39:0"/>
+        <DataEnumValue key="Center" id="40:0"/>
+        <DataEnumValue key="Center Right" id="41:0"/>
+        <DataEnumValue key="Bottom Left" id="42:0"/>
+        <DataEnumValue key="Bottom Center" id="43:0"/>
+        <DataEnumValue key="Bottom Right" id="44:0"/>
+        <DataEnumValue key="Space Between Start" id="45:0"/>
+        <DataEnumValue key="Space Between Center" id="46:0"/>
+        <DataEnumValue key="Space Between End" id="47:0"/>
+    </DataEnumSystem>
+    <DataEnumSystem enumType="layoutDisplay" id="48:0">
+        <DataEnumValue key="Show" id="49:0"/>
+        <DataEnumValue key="Hide" id="50:0"/>
+    </DataEnumSystem>
+    <DataEnumSystem enumType="layoutPosition" id="51:0">
+        <DataEnumValue key="Relative" id="52:0"/>
+        <DataEnumValue key="Absolute" id="53:0"/>
+    </DataEnumSystem>
+    <DataEnumSystem enumType="layoutScaleType" id="54:0">
+        <DataEnumValue key="Fixed" id="55:0"/>
+        <DataEnumValue key="Fill" id="56:0"/>
+        <DataEnumValue key="Hug" id="57:0"/>
+    </DataEnumSystem>
+    <DataEnumSystem enumType="layoutPositionUnits" id="58:0">
+        <DataEnumValue key="Unset" id="59:0"/>
+        <DataEnumValue key="Pixels" id="60:0"/>
+        <DataEnumValue key="Percentage" id="61:0"/>
+    </DataEnumSystem>
+    <DataEnumSystem enumType="scrollDirection" id="62:0">
+        <DataEnumValue key="Horizontal" id="63:0"/>
+        <DataEnumValue key="Vertical" id="64:0"/>
+        <DataEnumValue key="All" id="65:0"/>
+    </DataEnumSystem>
+    <DataEnumSystem enumType="textTrimTop" id="67:0">
+        <DataEnumValue key="None" id="68:0"/>
+        <DataEnumValue key="Cap" id="69:0"/>
+        <DataEnumValue key="Ex" id="70:0"/>
+        <DataEnumValue key="Ink" id="87:0"/>
+    </DataEnumSystem>
+    <DataEnumSystem enumType="textTrimBottom" id="71:0">
+        <DataEnumValue key="None" id="72:0"/>
+        <DataEnumValue key="Alphabetic" id="73:0"/>
+        <DataEnumValue key="Text" id="74:0"/>
+        <DataEnumValue key="Ink" id="88:0"/>
+    </DataEnumSystem>
+    <DataEnumSystem enumType="semanticCheckState" id="75:0">
+        <DataEnumValue key="Unchecked" id="76:0"/>
+        <DataEnumValue key="Checked" id="77:0"/>
+        <DataEnumValue key="Mixed" id="78:0"/>
+    </DataEnumSystem>
+    <DataEnumSystem enumType="17" id="79:0">
+        <DataEnumValue key="Break Word" id="80:0"/>
+        <DataEnumValue key="Normal" id="81:0"/>
+        <DataEnumValue key="Break All" id="82:0"/>
+    </DataEnumSystem>
+    <DataEnumSystem enumType="18" id="83:0">
+        <DataEnumValue key="Inside" id="84:0"/>
+        <DataEnumValue key="Center" id="85:0"/>
+        <DataEnumValue key="Outside" id="86:0"/>
+    </DataEnumSystem>
+    <DataGroup name="View Models" type="viewModels" id="1:17909"/>
+    <DataGroup name="Converters" type="converters" id="1:17910"/>
+    <DataGroup name="Enums" type="enums" id="1:53934"/>
+    <Folder name="IMG" id="1:52590">
+        <Folder name="seq" id="1:52905">
+            <ImageAsset file="IMG/seq/car_00000.png" format="webp" quality="0.050000001" height="385" width="240" assetId="6525664" name="car_00000" id="1:53847"/>
+            <ImageAsset file="IMG/seq/car_00002.png" format="webp" quality="0.050000001" height="385" width="240" assetId="6525666" name="car_00002" id="1:53849"/>
+            <ImageAsset file="IMG/seq/car_00004.png" format="webp" quality="0.050000001" height="385" width="240" assetId="6525668" name="car_00004" id="1:53852"/>
+            <ImageAsset file="IMG/seq/car_00006.png" format="webp" quality="0.050000001" height="385" width="240" assetId="6525670" name="car_00006" id="1:53854"/>
+            <ImageAsset file="IMG/seq/car_00008.png" format="webp" quality="0.050000001" height="385" width="240" assetId="6525672" name="car_00008" id="1:53856"/>
+            <ImageAsset file="IMG/seq/car_00010.png" format="webp" quality="0.050000001" height="385" width="240" assetId="6525674" name="car_00010" id="1:53858"/>
+            <ImageAsset file="IMG/seq/car_00012.png" format="webp" quality="0.050000001" height="385" width="240" assetId="6525677" name="car_00012" id="1:53860"/>
+            <ImageAsset file="IMG/seq/car_00014.png" format="webp" quality="0.050000001" height="385" width="240" assetId="6525679" name="car_00014" id="1:53862"/>
+            <ImageAsset file="IMG/seq/car_00016.png" format="webp" quality="0.050000001" height="385" width="240" assetId="6525681" name="car_00016" id="1:53864"/>
+            <ImageAsset file="IMG/seq/car_00018.png" format="webp" quality="0.050000001" height="385" width="240" assetId="6525683" name="car_00018" id="1:53866"/>
+            <ImageAsset file="IMG/seq/car_00020.png" format="webp" quality="0.050000001" height="385" width="240" assetId="6525685" name="car_00020" id="1:53868"/>
+            <ImageAsset file="IMG/seq/car_00022.png" format="webp" quality="0.050000001" height="385" width="240" assetId="6525688" name="car_00022" id="1:53870"/>
+            <ImageAsset file="IMG/seq/car_00024.png" format="webp" quality="0.050000001" height="385" width="240" assetId="6525690" name="car_00024" id="1:53872"/>
+            <ImageAsset file="IMG/seq/car_00026.png" format="webp" quality="0.050000001" height="385" width="240" assetId="6525693" name="car_00026" id="1:53874"/>
+            <ImageAsset file="IMG/seq/car_00028.png" format="webp" quality="0.050000001" height="385" width="240" assetId="6525695" name="car_00028" id="1:53876"/>
+            <ImageAsset file="IMG/seq/car_00031.png" format="webp" quality="0.050000001" height="385" width="240" assetId="6525700" name="car_00031" id="1:53879"/>
+            <ImageAsset file="IMG/seq/car_00033.png" format="webp" quality="0.050000001" height="385" width="240" assetId="6525702" name="car_00033" id="1:53881"/>
+            <ImageAsset file="IMG/seq/car_00035.png" format="webp" quality="0.050000001" height="385" width="240" assetId="6525705" name="car_00035" id="1:53883"/>
+            <ImageAsset file="IMG/seq/car_00037.png" format="webp" quality="0.050000001" height="385" width="240" assetId="6525707" name="car_00037" id="1:53885"/>
+            <ImageAsset file="IMG/seq/car_00039.png" format="webp" quality="0.050000001" height="385" width="240" assetId="6525709" name="car_00039" id="1:53887"/>
+            <ImageAsset file="IMG/seq/car_00041.png" format="webp" quality="0.050000001" height="385" width="240" assetId="6525711" name="car_00041" id="1:53889"/>
+            <ImageAsset file="IMG/seq/car_00043.png" format="webp" quality="0.050000001" height="385" width="240" assetId="6525713" name="car_00043" id="1:53891"/>
+            <ImageAsset file="IMG/seq/car_00045.png" format="webp" quality="0.050000001" height="385" width="240" assetId="6525716" name="car_00045" id="1:53893"/>
+            <ImageAsset file="IMG/seq/car_00047.png" format="webp" quality="0.050000001" height="385" width="240" assetId="6525719" name="car_00047" id="1:53895"/>
+            <ImageAsset file="IMG/seq/car_00049.png" format="webp" quality="0.050000001" height="385" width="240" assetId="6525721" name="car_00049" id="1:53897"/>
+            <ImageAsset file="IMG/seq/car_00051.png" format="webp" quality="0.050000001" height="385" width="240" assetId="6525723" name="car_00051" id="1:53899"/>
+            <ImageAsset file="IMG/seq/car_00053.png" format="webp" quality="0.050000001" height="385" width="240" assetId="6525725" name="car_00053" id="1:53901"/>
+            <ImageAsset file="IMG/seq/car_00055.png" format="webp" quality="0.050000001" height="385" width="240" assetId="6525728" name="car_00055" id="1:53903"/>
+            <ImageAsset file="IMG/seq/car_00057.png" format="webp" quality="0.050000001" height="385" width="240" assetId="6525730" name="car_00057" id="1:53905"/>
+            <ImageAsset file="IMG/seq/car_00059.png" format="webp" quality="0.050000001" height="385" width="240" assetId="6525732" name="car_00059" id="1:53907"/>
+        </Folder>
+        <ImageAsset file="IMG/car.png" format="webp" quality="0.30000001" height="958" width="599" assetId="6525787" name="car" id="1:53914"/>
+    </Folder>
+    <Folder name="Artboards" id="1:52591">
+        <ComponentAsset artboardId="1:2" name="Car" id="1:32"/>
+        <ComponentAsset artboardId="1:52919" name="Car 2" id="1:53662"/>
+        <ComponentAsset artboardId="1:142" name="FlameComp" id="1:209"/>
+        <ComponentAsset artboardId="1:48843" name="BGComp" id="1:48908"/>
+    </Folder>
+    <Folder name="Scripts" id="1:52592">
+        <ScriptAsset file="Scripts/FlameDistortion.luau" generatorFunctionRef="5" compilationOrder="2" serializedImplementedMethods="515" scriptProtocolValue="pathEffect" codeFileId="1:360" folderPath="Scripts" name="FlameDistortion" exportFlags="1" id="1:5060"/>
+        <ScriptAsset file="Scripts/SpeedLines.luau" generatorFunctionRef="4" compilationOrder="1" serializedImplementedMethods="771" scriptProtocolValue="node" codeFileId="1:18676" folderPath="Scripts" name="SpeedLines" exportFlags="1" id="1:28527"/>
+    </Folder>
+    <Space name="Space 1" activeArtboardId="1:2" id="1:58789"/>
+    <ViewModel defaultInstanceId="1:15" name="ControlsVM" groupId="1:17909" id="1:14">
+        <ViewModelPropertyTrigger name="restart" id="1:58748"/>
+        <ViewModelPropertyBoolean name="frozen" id="1:57666"/>
+        <ViewModelPropertyNumber name="linesIntensity" id="1:28574"/>
+        <ViewModelPropertyNumber name="linesSpeed" id="1:28576"/>
+        <ViewModelPropertyNumber name="linesDensity" id="1:28578"/>
+        <ViewModelPropertyNumber name="linesLength" id="1:28580"/>
+        <ViewModelPropertyNumber name="linesOpacity" id="1:28582"/>
+        <ViewModelPropertyNumber name="linesSpread" id="1:28584"/>
+        <ViewModelPropertyNumber name="linesTurbulence" id="1:28586"/>
+        <ViewModelPropertyNumber name="linesThickness" id="1:28588"/>
+        <ViewModelPropertyNumber name="linesBlur" id="1:28590"/>
+        <ViewModelPropertyNumber name="intensity" id="1:18612"/>
+        <ViewModelPropertyNumber name="amplitude" id="1:18614"/>
+        <ViewModelPropertyNumber name="speed" id="1:18616"/>
+        <ViewModelPropertyNumber name="scale" id="1:18618"/>
+        <ViewModelPropertyNumber name="opacity" id="1:18620"/>
+        <ViewModelPropertyEnumCustom enumId="1:18537" name="promoType" id="1:18535"/>
+        <ViewModelInstance exports="true" id="1:15">
+            <ViewModelInstanceEnum propertyValue="1:18539" playbackValue="1:18539" viewModelPropertyId="1:18535" id="1:18536"/>
+            <ViewModelInstanceNumber propertyValue="100" playbackValue="100" viewModelPropertyId="1:18612" id="1:18613"/>
+            <ViewModelInstanceNumber propertyValue="6" playbackValue="6" viewModelPropertyId="1:18614" id="1:18615"/>
+            <ViewModelInstanceNumber propertyValue="3" playbackValue="3" viewModelPropertyId="1:18616" id="1:18617"/>
+            <ViewModelInstanceNumber propertyValue="100" playbackValue="100" viewModelPropertyId="1:18618" id="1:18619"/>
+            <ViewModelInstanceNumber propertyValue="100" playbackValue="100" viewModelPropertyId="1:18620" id="1:18621"/>
+            <ViewModelInstanceNumber propertyValue="50" playbackValue="50" viewModelPropertyId="1:28574" id="1:28575"/>
+            <ViewModelInstanceNumber propertyValue="1000" playbackValue="1000" viewModelPropertyId="1:28576" id="1:28577"/>
+            <ViewModelInstanceNumber propertyValue="100" playbackValue="100" viewModelPropertyId="1:28578" id="1:28579"/>
+            <ViewModelInstanceNumber propertyValue="100" playbackValue="100" viewModelPropertyId="1:28580" id="1:28581"/>
+            <ViewModelInstanceNumber propertyValue="100" playbackValue="100" viewModelPropertyId="1:28582" id="1:28583"/>
+            <ViewModelInstanceNumber propertyValue="20" playbackValue="20" viewModelPropertyId="1:28584" id="1:28585"/>
+            <ViewModelInstanceNumber propertyValue="10" playbackValue="10" viewModelPropertyId="1:28586" id="1:28587"/>
+            <ViewModelInstanceNumber propertyValue="1" playbackValue="1" viewModelPropertyId="1:28588" id="1:28589"/>
+            <ViewModelInstanceNumber propertyValue="1" playbackValue="1" viewModelPropertyId="1:28590" id="1:28591"/>
+            <ViewModelInstanceBoolean viewModelPropertyId="1:57666" id="1:57667"/>
+            <ViewModelInstanceTrigger viewModelPropertyId="1:58748" id="1:58749"/>
+        </ViewModelInstance>
+    </ViewModel>
+</Rive>
+```
+
+</details>
