@@ -58,3 +58,8 @@ Desktop.ini
 # Файлы анимации поиска продавца для прямого скачивания из артефакта
 !seller-search/*.riv
 !seller-search/*.zip
+
+# Файлы анимации пейволла топов для прямого скачивания из артефакта
+!tops-paywall/*.riv
+!tops-paywall/*.zip
+!tops-paywall/versions/*/*.riv
